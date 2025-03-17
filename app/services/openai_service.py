@@ -29,7 +29,14 @@ class OpenAIService:
     
     def chat_completion(self, messages: list[ChatMessage], model: str = "gemini-2.0-flash", **kwargs) -> Dict[Any, Any]:
         """Generate a chat completion for the provided messages."""
-        formatted_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
+        # Format messages for Google's Generative AI API
+        formatted_messages = []
+        for msg in messages:
+            formatted_messages.append({
+                "parts": [{"text": msg.content}],
+                "role": msg.role
+            })
+        
         response = self.client.models.generate_content(
             model=model,
             contents=formatted_messages,
