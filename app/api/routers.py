@@ -1,0 +1,8 @@
+# app/api/endpoints/__init__.py
+from fastapi import APIRouter
+
+from .endpoints.chatbot import router as chatbot_router
+
+router = APIRouter()
+
+router.include_router(chatbot_router)
