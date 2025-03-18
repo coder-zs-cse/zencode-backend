@@ -2,7 +2,6 @@ from google import genai
 from typing import Optional, Dict, Any
 import os
 from pydantic import BaseModel
-
 class ChatMessage(BaseModel):
     role: str
     content: str
@@ -51,3 +50,6 @@ class OpenAIService:
         """List available models."""
         models = self.client.models.list()
         return [model.name for model in models]
+
+
+
