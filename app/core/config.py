@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     
     # API Keys
     GOOGLE_API_KEY: Optional[str] = None
+    GITHUB_TOKEN: Optional[str] = None
 
     # GitHub Repository Link
     REPO_LINK: Optional[str] = None

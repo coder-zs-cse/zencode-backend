@@ -11,7 +11,10 @@ def get_openai_service(settings: Settings = Depends(get_settings)) -> OpenAIServ
 
 def get_components_service(settings: Settings = Depends(get_settings)) -> FetchComponentsService:
     """Dependency for getting the Components through GitHub repository"""
-    return FetchComponentsService(repo_link=settings.REPO_LINK)
+    return FetchComponentsService(
+        repo_link=settings.REPO_LINK,
+        access_token=settings.GITHUB_TOKEN
+    )
 
 # Type annotation for dependency injection
 OpenAIServiceDep = Annotated[OpenAIService, Depends(get_openai_service)]
