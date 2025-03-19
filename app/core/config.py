@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     
     # API Keys
     GOOGLE_API_KEY: Optional[str] = None
+
+    # GitHub Repository Link
+    REPO_LINK: Optional[str] = None
     
     # Application settings
     APP_NAME: str = "FastAPI Backend"
