@@ -2,6 +2,12 @@ from typing import Optional
 import re
 import requests
 import base64
+from pydantic import BaseModel
+
+class FetchedComponent(BaseModel):
+    file: str
+    fileContent: str
+    path: str
 
 class FetchComponentsService:
     def __init__(self, repo_link: Optional[str] = None, access_token: Optional[str] = None):
@@ -22,7 +28,7 @@ class FetchComponentsService:
         if self.access_token:
             self.headers['Authorization'] = f'token {self.access_token}'
 
-    def fetch_directory_contents(self, path: str = "") -> list:
+    def fetch_directory_contents(self, path: str = "") -> list[FetchedComponent]:
         """Recursively fetch contents of a directory."""
         try:
             # GitHub API endpoint for repository contents
@@ -38,11 +44,11 @@ class FetchComponentsService:
                     content_response = requests.get(item['download_url'], headers=self.headers)
                     content_response.raise_for_status()
                     
-                    fetchedComponents.append({
-                        'file': item['name'],
-                        'fileContent': content_response.text,
-                        'path': item['path']
-                    })
+                    fetchedComponents.append(FetchedComponent(
+                        file=item['name'],
+                        fileContent=content_response.text,
+                        path=item['path']
+                    ))
                 elif item['type'] == 'dir':
                     # Recursively fetch contents of subdirectories
                     subdir_contents = self.fetch_directory_contents(item['path'])
@@ -65,5 +71,17 @@ class FetchComponentsService:
             print("Error in extract_components:", str(e))
             raise
 
+    
+    def extract_design_components(self):
+        try: 
+            allComponents = self.extract_components()
 
+            designComponents = [
+                component for component in allComponents
+                if ('ui' in component.path.lower() or component.file.endswith(('.css', '.scss'))) and component.fileContent.strip() != ''
+            ]
+            return designComponents
+        except Exception as e:
+            print("Error in extract_design_components:", str(e))
+            raise
 

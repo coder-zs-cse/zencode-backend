@@ -12,11 +12,11 @@ class Settings(BaseSettings):
     
     # API Keys
     GOOGLE_API_KEY: Optional[str] = None
-    GITHUB_TOKEN: Optional[str] = None
+    # Pinecone settings
+    PINECONE_API_KEY: Optional[str] = None
+    PINECONE_ENVIRONMENT: Optional[str] = None
+    PINECONE_INDEX: str = "internal-design-library"
 
-    # GitHub Repository Link
-    REPO_LINK: Optional[str] = None
-    
     # Application settings
     APP_NAME: str = "FastAPI Backend"
     DEBUG: bool = False
@@ -25,6 +25,19 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = True
+    
+    # Convenience properties for consistent naming in endpoints
+    @property
+    def google_api_key(self) -> Optional[str]:
+        return self.GOOGLE_API_KEY
+
+    @property
+    def pinecone_api_key(self) -> Optional[str]:
+        return self.PINECONE_API_KEY
+
+    @property
+    def pinecone_environment(self) -> Optional[str]:
+        return self.PINECONE_ENVIRONMENT
 
 @lru_cache()
 def get_settings() -> Settings:

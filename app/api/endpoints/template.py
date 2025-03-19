@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.lib.constants.reactbase import reactBase
+from app.lib.constants.reactbase import reactBase
 
 router = APIRouter()
 

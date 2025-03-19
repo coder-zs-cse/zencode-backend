@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException
 from app.api.dependencies import OpenAIServiceDep
-from app.api.dependencies import FetchComponentsDep
 from app.models.request import GenerateContentRequest, ChatCompletionRequest
 from app.models.response import GenerateContentResponse, ChatCompletionResponse
 
@@ -40,11 +39,4 @@ def list_models(openai_service: OpenAIServiceDep):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error listing models: {str(e)}")
 
-@router.get("/test-fetch-components")
-def componets(fetch_components: FetchComponentsDep):
-    try:
-        fetched = fetch_components.extract_components()
-        return fetched
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error listing components: {str(e)}")
     
