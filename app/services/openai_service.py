@@ -1,47 +1,81 @@
 from google import genai
 from typing import Optional, Dict, Any, List, Union
-import os
+from google.genai import types
 from pydantic import BaseModel
+from app.models.builder_steps import ReactResponse
+from app.lib.constants.model_config import SYSTEM_PROMPTS, DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, DEFAULT_LLM_MODEL, DEFAULT_EMBEDDING_MODEL
+
 class ChatMessage(BaseModel):
     role: str
     content: str
 
-class OpenAIService:
-    def __init__(self, api_key: Optional[str] = None):
+class ModelConfig:
+    def __init__(self, 
+                    max_tokens: int = DEFAULT_MAX_TOKENS,
+                    temperature: float = DEFAULT_TEMPERATURE,
+                    model: str = DEFAULT_LLM_MODEL):
+        self.max_tokens = max_tokens
+        self.temperature = temperature
+        self.model = model 
 
+class OpenAIService:
+    def __init__(self, 
+                 api_key: Optional[str] = None,
+                 max_tokens: int = DEFAULT_MAX_TOKENS,
+                 temperature: float = DEFAULT_TEMPERATURE,
+                 model: str = DEFAULT_LLM_MODEL):
+        
         self.api_key = api_key
         if not self.api_key:
             raise ValueError("Google API key is required")
+            
         self.client = genai.Client(api_key=self.api_key)
-        # Update to match your Pinecone index model
-        self.embedding_model = "llama-text-embed-v2"
+        self.embedding_model = DEFAULT_EMBEDDING_MODEL
+        self.model_config = ModelConfig(
+            max_tokens=max_tokens,
+            temperature=temperature,
+            model=model
+        )
         
-    def generate_content(self, prompt: str, model: str = "gemini-2.0-flash", **kwargs) -> Dict[Any, Any]:
-
+    def generate_content(self, prompt: str, model: Optional[str] = None) -> Dict[Any, Any]:
+        model = model or self.model_config.model
         response = self.client.models.generate_content(
             model=model,
             contents=prompt,
-            **kwargs
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPTS["react_generator"],
+                max_output_tokens=self.model_config.max_tokens,
+                temperature=self.model_config.temperature,
+                response_mime_type='application/json',
+                response_schema=ReactResponse,
+            ),
         )
         return {
             "text": response.text,
             "raw_response": response
         }
     
-    def chat_completion(self, messages: list[ChatMessage], model: str = "gemini-2.0-flash", **kwargs) -> Dict[Any, Any]:
-
+    def chat_completion(self, messages: list[ChatMessage], model: Optional[str] = None) -> Dict[Any, Any]:
+        model = model or self.model_config.model
         formatted_messages = []
         for msg in messages:
             formatted_messages.append({
                 "parts": [{"text": msg.content}],
-                "role": msg.role
+                "role": msg.role or "user"
             })
         
         response = self.client.models.generate_content(
             model=model,
             contents=formatted_messages,
-            **kwargs
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPTS["react_generator"],
+                max_output_tokens=self.model_config.max_tokens,
+                temperature=self.model_config.temperature,
+                response_mime_type='application/json',
+                response_schema=ReactResponse,
+            ),
         )
+
         return {
             "text": response.text,
             "raw_response": response
@@ -52,23 +86,6 @@ class OpenAIService:
         models = self.client.models.list()
         return [model.name for model in models]
     
-    def get_embeddings(self, texts: Union[str, List[str]], model: Optional[str] = None) -> List[List[float]]:
-        model = model or self.embedding_model
-        
-        # Convert single string to list for consistent processing
-        if isinstance(texts, str):
-            texts = [texts]
-            
-        embeddings = []
-        for text in texts:
-            # Use Google's API to generate embeddings
-            embedding_response = self.client.models.get_embeddings(
-                model=model,
-                text=text
-            )
-            embeddings.append(embedding_response.embedding)
-            
-        return embeddings
 
 
 

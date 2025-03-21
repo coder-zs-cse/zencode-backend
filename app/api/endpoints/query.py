@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 
-from app.services.openai_service import OpenAIService, ChatMessage
+from app.services.openai_service import ChatMessage
 from app.api.dependencies import PineconeServiceDep, OpenAIServiceDep
 
 router = APIRouter()
@@ -67,7 +67,7 @@ async def generate_with_rag(
     """
     try:
         query_results = pinecone_service.query(
-            query_text=request.generation_prompt,
+            query_text=request.query_text,
             top_k=request.top_k,
             namespace=request.namespace,
             filter=request.filter
@@ -76,28 +76,18 @@ async def generate_with_rag(
         context = ""
         for i, match in enumerate(query_results.get('matches', [])):
             # Add information about the component
-            context += f"File Import Path: {match['metadata']['file_path']}\n"
-            context += f"File Content: {match['metadata']['text']}\n\n"
+            context += f"Internal component Import Path: {match['metadata']['file_path']}\n"
+            context += f"Internal component Content: {match['metadata']['text']}\n\n"
         
         messages = [
             ChatMessage(
                 role="user",
-                content=f"""You are a code generation assistant that MUST FOLLOW THESE STRICT RULES:
-1. ONLY use components from our internal component library shown in the context below
-2. DO NOT import or use any external libraries that aren't already visible in the provided component examples
-3. If a needed component is not available in the context, you may create a basic version using only native elements
-4. If a component is having input props, then use only those input props that fit the use case.
-5. Maintain consistent styling and patterns with the provided examples
-6. Generate ONLY the code, without explanations or comments
-
-Below are the available components from our internal library:
-
-{context}
-
-Your task is to generate code for:
-{request.generation_prompt}
-"""
-                )
+                content= context
+            ),
+            ChatMessage(
+                role="user",
+                content= request.generation_prompt
+            )
         ]
         
         response = openai_service.chat_completion(messages=messages)

@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     PINECONE_ENVIRONMENT: Optional[str] = None
     PINECONE_INDEX: str = "internal-design-library"
 
+    # MongoDB settings
+    MONGODB_URL: str = "mongodb+srv://wcoderzs:a26XEs9UsRzcBx9n@zencode.lqwq8.mongodb.net/?retryWrites=true&w=majority&appName=zencode"
+    MONGODB_DB_NAME: str = "zencode_db"
+    MONGODB_USER: Optional[str] = None
+    MONGODB_PASSWORD: Optional[str] = None
+    
     # Application settings
     APP_NAME: str = "FastAPI Backend"
     DEBUG: bool = False
@@ -39,6 +45,10 @@ class Settings(BaseSettings):
     def pinecone_environment(self) -> Optional[str]:
         return self.PINECONE_ENVIRONMENT
 
+    @property
+    def mongodb_url(self) -> str:
+        return self.MONGODB_URL
+    
 @lru_cache()
 def get_settings() -> Settings:
     """Get application settings from environment with caching."""

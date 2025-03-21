@@ -78,7 +78,11 @@ class FetchComponentsService:
 
             designComponents = [
                 component for component in allComponents
-                if ('ui' in component.path.lower() or component.file.endswith(('.css', '.scss'))) and component.fileContent.strip() != ''
+                if (
+                    # 'ui' in component.path.lower() or 
+                    # component.file.endswith(('.css', '.scss')) or
+                    component.file.strip() == 'package.json'
+                ) and component.fileContent.strip() != ''
             ]
             return designComponents
         except Exception as e:
