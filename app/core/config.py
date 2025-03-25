@@ -12,10 +12,12 @@ class Settings(BaseSettings):
     
     # API Keys
     GOOGLE_API_KEY: Optional[str] = None
+    DEEPSEEK_API_KEY: Optional[str] = None
+    OPENAI_API_KEY: Optional[str] = None
     # Pinecone settings
     PINECONE_API_KEY: Optional[str] = None
     PINECONE_ENVIRONMENT: Optional[str] = None
-    PINECONE_INDEX: str = "internal-design-library"
+    PINECONE_INDEX: str = "v2-internal-library"
 
     # MongoDB settings
     MONGODB_URL: str = "mongodb+srv://wcoderzs:a26XEs9UsRzcBx9n@zencode.lqwq8.mongodb.net/?retryWrites=true&w=majority&appName=zencode"
@@ -36,6 +38,10 @@ class Settings(BaseSettings):
     @property
     def google_api_key(self) -> Optional[str]:
         return self.GOOGLE_API_KEY
+
+    @property
+    def deepseek_api_key(self) -> Optional[str]:
+        return self.DEEPSEEK_API_KEY
 
     @property
     def pinecone_api_key(self) -> Optional[str]:

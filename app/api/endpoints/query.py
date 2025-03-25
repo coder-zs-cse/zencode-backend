@@ -2,8 +2,8 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 
-from app.services.openai_service import ChatMessage
-from app.api.dependencies import PineconeServiceDep, OpenAIServiceDep
+from app.services.gemini_service import ChatMessage
+from app.api.dependencies import PineconeServiceDep, OpenAIServiceDep, DeepSeekServiceDep
 
 router = APIRouter()
 
@@ -59,7 +59,7 @@ async def query_components(
 async def generate_with_rag(
     request: GenerateComponentRequest,
     pinecone_service: PineconeServiceDep,
-    openai_service: OpenAIServiceDep
+    openai_service: DeepSeekServiceDep
 ):
     """
     Query similar components and use them as context to generate 

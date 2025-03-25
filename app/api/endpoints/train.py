@@ -1,16 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Header
 from pydantic import BaseModel, validator
 import os
 from typing import Optional, Dict, Any
-from app.services.openai_service import OpenAIService
+from app.services.gemini_service import GeminiService
 from app.api.dependencies import get_settings, PineconeServiceDep
+import asyncio
+from app.services.database_service import DatabaseService
 
 router = APIRouter()
 
 class TrainGitHubRequest(BaseModel):
     github_url: str
     access_token: Optional[str] = None
-    namespace: Optional[str] = None
     
     @validator('github_url')
     def validate_github_url(cls, v):
@@ -22,7 +23,9 @@ class TrainGitHubRequest(BaseModel):
 async def train_github_components(
     request: TrainGitHubRequest,
     pinecone_service: PineconeServiceDep,
-    settings = Depends(get_settings)
+    userId: str = Header(None),
+    settings = Depends(get_settings),
+    database_service: DatabaseService = Depends()
 ):
     """
     Trains the RAG system on a GitHub repository, extracting UI components
@@ -39,17 +42,62 @@ async def train_github_components(
                 detail="Pinecone configuration not found"
             )
         
-        # Train on GitHub repository
-        result = pinecone_service.train_github_url(
-            github_url=request.github_url,
-            access_token=request.access_token,
-            namespace=request.namespace
-        )
+        # Start training as a background asyncio task
+        
+        
+        async def train_in_background():
+            try:
+                # Update user status to IN_PROGRESS
+                await database_service.update_one(
+                    "users",
+                    {"_id": userId},
+                    {"$set": {
+                        "indexingStatus": "IN_PROGRESS",
+                        "lastIndexedRepo": request.github_url,
+                    }}
+                )
+
+                # Train on GitHub repository
+                result = pinecone_service.train_github_url(
+                    github_url=request.github_url,
+                    access_token=request.access_token,
+                    namespace=userId
+                )
+                print(f"Training completed: {result['total_components']} components indexed")
+
+                # Update user status to COMPLETED
+                await database_service.update_one(
+                    "users",
+                    {"_id": userId},
+                    {"$set": {
+                        "indexingStatus": "COMPLETED",
+                        "lastIndexedRepo": request.github_url,
+                        "totalComponents": result['total_components']
+                    }}
+                )
+            except Exception as e:
+                print(f"Error in background training: {str(e)}")
+                # Update user status to ERROR
+                await database_service.update_one(
+                    "users",
+                    {"_id": userId},
+                    {"$set": {
+                        "indexingStatus": "ERROR",
+                        "lastError": str(e)
+                    }}
+                )
+        
+        # Create and launch a background task
+        asyncio.create_task(train_in_background())
+        
         
         return {
             "status": "success",
-            "message": f"Successfully indexed {result['total_components']} components",
-            "details": result
+            "message": "Training in progress",
+            "details": {
+                "github_url": request.github_url,
+                "namespace": userId
+            }
         }
         
     except Exception as e:
