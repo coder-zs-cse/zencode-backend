@@ -69,8 +69,8 @@ class DeepSeekService:
         if not any(msg.role == "system" for msg in messages):
             formatted_messages.insert(0, {
                 "role": "system",
-                # "content": SYSTEM_PROMPTS["react_generator"]
-                "content": SYSTEM_PROMPTS["XML_SYSTEM_PROMPT"]
+                "content": SYSTEM_PROMPTS["react_generator"]
+                # "content": SYSTEM_PROMPTS["XML_SYSTEM_PROMPT"]
             })
         
         response = self.client.beta.chat.completions.parse(

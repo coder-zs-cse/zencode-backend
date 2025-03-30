@@ -23,7 +23,7 @@ class TrainGitHubRequest(BaseModel):
 async def train_github_components(
     request: TrainGitHubRequest,
     pinecone_service: PineconeServiceDep,
-    userId: str = Header(None),
+    userid: str = Header(None, convert_underscores=False),
     settings = Depends(get_settings),
     database_service: DatabaseService = Depends()
 ):
@@ -31,6 +31,7 @@ async def train_github_components(
     Trains the RAG system on a GitHub repository, extracting UI components
     and storing them in the Pinecone vector database.
     """
+    print("Received userId in /github endpoint:", userid)
     try:
         # Initialize services
         pinecone_api_key = settings.pinecone_api_key
@@ -44,35 +45,25 @@ async def train_github_components(
         
         # Start training as a background asyncio task
         
-        
         async def train_in_background():
             try:
                 # Update user status to IN_PROGRESS
-                await database_service.update_one(
-                    "users",
-                    {"_id": userId},
-                    {"$set": {
-                        "indexingStatus": "IN_PROGRESS",
-                        "lastIndexedRepo": request.github_url,
-                    }}
-                )
+                github_id = await database_service.insert_one("github", {"userId": userid, "indexingStatus": "IN_PROGRESS", "githubUrl": request.github_url})
 
                 # Train on GitHub repository
-                result = pinecone_service.train_github_url(
+                result = await pinecone_service.train_github_url(
                     github_url=request.github_url,
                     access_token=request.access_token,
-                    namespace=userId
+                    namespace=userid
                 )
                 print(f"Training completed: {result['total_components']} components indexed")
 
                 # Update user status to COMPLETED
                 await database_service.update_one(
-                    "users",
-                    {"_id": userId},
+                    "github",
+                    {"userId": userid},
                     {"$set": {
                         "indexingStatus": "COMPLETED",
-                        "lastIndexedRepo": request.github_url,
-                        "totalComponents": result['total_components']
                     }}
                 )
             except Exception as e:
@@ -80,7 +71,7 @@ async def train_github_components(
                 # Update user status to ERROR
                 await database_service.update_one(
                     "users",
-                    {"_id": userId},
+                    {"_id": userid},
                     {"$set": {
                         "indexingStatus": "ERROR",
                         "lastError": str(e)
@@ -96,7 +87,7 @@ async def train_github_components(
             "message": "Training in progress",
             "details": {
                 "github_url": request.github_url,
-                "namespace": userId
+                "namespace": userid
             }
         }
         

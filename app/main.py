@@ -10,14 +10,22 @@ app = FastAPI()
 
 @app.middleware("http")
 async def add_user_id_header(request: Request, call_next):
-    if not request.headers.get("userId"):
-        user_id = str(uuid.uuid4())
-        await database_service.insert_one("users", {"_id": user_id, "created_at": str(datetime.utcnow())})
-        request.headers.__dict__["_list"].append(
-            (b"userId", user_id.encode())
-        )
+    print("Incoming headers:", request.headers.items())
+    existing_user_id = request.headers.get("userid")  # FastAPI normalizes header names to lowercase
+    if not existing_user_id:
+        print("No userId found, creating new user")
+        _id = await database_service.insert_one("users", { "created_at": str(datetime.utcnow())})
+        print(f"Created new user with _id: {_id}")
+        # Modify headers safely
+        request.scope["headers"] = [
+            (name, value) for name, value in request.scope["headers"]
+            if name.lower() != b"userid"
+        ] + [(b"userid", str(_id).encode())]
+        
+        print("Updated request headers:", request.headers.items())
         response = await call_next(request)
-        response.headers["x-user-id"] = user_id
+        response.headers["x-user-id"] = str(_id)
+        print("Set response header x-user-id:", str(_id))
         return response
     return await call_next(request)
 
@@ -27,6 +35,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
+    expose_headers=["x-user-id"],  # Expose custom header
 )
 
 app.include_router(routers.router, prefix='/api')

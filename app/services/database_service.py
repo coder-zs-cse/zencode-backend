@@ -1,8 +1,111 @@
 from httpx import AsyncClient
 from app.core.config import get_settings
 from typing import Optional, Dict, Any, List
+from pydantic import BaseModel, Field
 
 settings = get_settings()
+
+class ComponentFile(BaseModel):
+    """Model representing a React component file in the database."""
+    name: str
+    path: str 
+    description: str = ""
+    inputProps: List[Dict[str, Any]] = Field(default_factory=list)
+    useCases: List[str] = Field(default_factory=list)
+    codeExamples: List[str] = Field(default_factory=list)
+    user_id: Optional[str] = None
+    file_type: str = "react_component"
+    
+    class Config:
+        validate_assignment = True
+        arbitrary_types_allowed = True
+
+class CSSFile(BaseModel):
+    """Model representing a CSS file in the database."""
+    name: str
+    path: str
+    classes: List[Dict[str, str]] = Field(default_factory=list)
+    custom_properties: List[str] = Field(default_factory=list)
+    media_queries: List[str] = Field(default_factory=list)
+    animations: List[str] = Field(default_factory=list)
+    text: str = ""  # For search purposes
+    user_id: Optional[str] = None
+    file_type: str = "css"
+    
+    class Config:
+        validate_assignment = True
+        arbitrary_types_allowed = True
+
+class PackageFile(BaseModel):
+    """Model representing a package.json file in the database."""
+    name: str
+    githubUrl: str
+    path: str
+    version: str = ""
+    description: str = ""
+    dependencies: Dict[str, str] = Field(default_factory=dict)
+    devDependencies: Dict[str, str] = Field(default_factory=dict)
+    scripts: Dict[str, str] = Field(default_factory=dict)
+    total_dependencies: int = 0
+    total_dev_dependencies: int = 0
+    total_scripts: int = 0
+    text: str = ""  # For search purposes
+    user_id: Optional[str] = None
+    file_type: str = "package.json"
+    
+    class Config:
+        validate_assignment = True
+        arbitrary_types_allowed = True
+
+class DesignConfigFile(BaseModel):
+    """Model representing a design configuration file in the database."""
+    name: str
+    path: str
+    has_theme: bool = False
+    has_plugins: bool = False
+    has_extends: bool = False
+    colors: Dict[str, str] = Field(default_factory=dict)
+    theme_preview: str = ""
+    plugins_preview: str = ""
+    extends_preview: str = ""
+    text: str = ""  # For search purposes
+    user_id: Optional[str] = None
+    file_type: str = "design_config"
+    
+    class Config:
+        validate_assignment = True
+        arbitrary_types_allowed = True
+
+class GithubRepo(BaseModel):
+    """Model representing a GitHub repository in the database."""
+    githubUrl: str
+    userId: str
+    indexingStatus: str = Field(None, pattern='^(IN_PROGRESS|ERROR|COMPLETED)$')
+    componentList: List[str] = Field(default_factory=list)
+    packageJson: Optional[str] = None
+    cssFiles: Optional[str] = None
+    designConfigFiles: Optional[str] = None
+    
+    class Config:
+        validate_assignment = True
+        arbitrary_types_allowed = True
+
+class Component(BaseModel):
+    """Model representing a component in the database."""
+    userId: str
+    githubUrl: str
+    componentName: str
+    indexingStatus: bool = False
+    componentPath: str
+    description: str = ""
+    useCase: str = ""
+    codeSamples: List[str] = Field(default_factory=list)
+    dependencies: List[str] = Field(default_factory=list)
+    importPath: str = ""
+    
+    class Config:
+        validate_assignment = True
+        arbitrary_types_allowed = True
 
 class DatabaseService:
     def __init__(self):
@@ -91,15 +194,21 @@ class DatabaseService:
             print(f"Error updating document in {collection}: {str(e)}")
             return False
 
-    async def update_many(self, collection: str, query: Dict[str, Any], update: Dict[str, Any]) -> int:
-        """Update multiple documents in the specified collection.
-        Returns the number of documents modified."""
+    async def update_many(self, collection: str, updates: List[Dict[str, Any]]) -> int:
+        """Update multiple documents in the specified collection using bulk operations.
+        
+        Args:
+            collection: The collection to update
+            updates: List of update operations, each containing 'filter' and 'update' keys
+            
+        Returns:
+            Number of documents modified
+        """
         try:
             response = await self.client.patch(
                 f"{self.base_url}/{collection}/updateMany",
                 json={
-                    "query": query,
-                    "update": update
+                    "updates": updates
                 }
             )
             result = response.json()

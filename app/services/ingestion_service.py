@@ -5,9 +5,10 @@ import json
 import base64
 import json
 from pydantic import BaseModel
-from app.lib.constants.reactbase import COMPONENT_FUNCTION_SCHEMA, COMPONENT_SYSTEM_PROMPT
 from app.services.openai_service import OpenAIService, ChatMessage
 from app.core.config import get_settings
+from app.lib.constants.model_config import SYSTEM_PROMPTS
+
 
 class FetchedComponent(BaseModel):
     file: str
@@ -18,6 +19,7 @@ class FetchedComponent(BaseModel):
 class Component(BaseModel):
     name: str
     path: str
+    code: str
     description: str
     inputProps: List[Dict[str, Any]]
     useCases: List[str]
@@ -129,7 +131,7 @@ class FetchComponentsService:
 
             # Prepare messages for the LLM with a more direct prompt
             messages = [
-                ChatMessage(role="system", content=COMPONENT_SYSTEM_PROMPT),
+                ChatMessage(role="system", content=SYSTEM_PROMPTS["COMPONENT_SYSTEM_PROMPT"]),
                 ChatMessage(
                     role="user", 
                     content=(
@@ -168,6 +170,7 @@ class FetchComponentsService:
                     # Use the original component's path and name
                     comp_data["name"] = orig_comp.file
                     comp_data["path"] = orig_comp.path
+                    comp_data["code"] = orig_comp.fileContent
                     batch_components.append(Component(**comp_data))
                 
             except json.JSONDecodeError as e:
@@ -355,46 +358,201 @@ class FetchComponentsService:
                 metadata=metadata.model_dump_json()
             )
 
-    def extract_design_components(self) -> List[ProcessedFile]:
-        try:
-            allComponents = self.extract_components()
-
-            # Process different file types
-            processed_files: List[ProcessedFile] = []
-            react_components = []
+    def filter_components_by_type(self, all_components: List[FetchedComponent]) -> Dict[str, List[FetchedComponent]]:
+        """
+        Filter components by file type and location.
+        
+        Returns:
+            Dictionary with categorized components:
+            - 'react_components': TSX/JSX files in components/ui directories
+            - 'css_files': CSS files
+            - 'design_config_files': Design configuration files like tailwind.config.js
+            - 'package_files': package.json files
+            - 'other_files': All other files
+        """
+        filtered_components = {
+            'react_components': [],
+            'css_files': [],
+            'design_config_files': [],
+            'package_files': [],
+            'other_files': []
+        }
+        
+        design_config_patterns = ['tailwind.config.js', 'theme.config.js', 'styles.config.js', 'tailwind.config.ts', 'theme.config.ts', 'styles.config.ts'  ]
+        
+        for component in all_components:
+            file_path = component.path
+            file_content = component.fileContent
             
-            for component in allComponents:
-                file_name = component.file
-                file_path = component.path
-                file_content = component.fileContent
+            # Skip empty files
+            if file_content.strip() == '':
+                continue
                 
-                if file_path.endswith('.css'):
-                    css_details = self.parse_css_file(file_name, file_content, file_path)
-                    processed_files.append(ProcessedFile(**css_details.model_dump()))
-                elif file_path.endswith('package.json'):
-                    package_details = self.parse_package_json(file_name, file_content, file_path)
-                    processed_files.append(ProcessedFile(**package_details.model_dump()))
-                elif (
-                    file_path.endswith(('.tsx', '.jsx')) or  # React component files
-                    'components' in file_path.lower() or     # Files in component directories
-                    'ui' in file_path.lower()               # UI-related files
-                ) and file_content.strip() != '':
-                    react_components.append(component)
+            # Check for React components in UI/components directories
+            if file_path.endswith(('.tsx', '.jsx')) and ('components' in file_path.lower() or 'ui' in file_path.lower()):
+                filtered_components['react_components'].append(component)
+            
+            # CSS files
+            elif file_path.endswith('.css'):
+                filtered_components['css_files'].append(component)
+            
+            # Design configuration files
+            elif any(file_path.endswith(pattern) for pattern in design_config_patterns):
+                filtered_components['design_config_files'].append(component)
+            
+            # Package.json files
+            elif file_path.endswith('package.json'):
+                filtered_components['package_files'].append(component)
+            
+            # All other files
+            else:
+                filtered_components['other_files'].append(component)
+                
+        return filtered_components
+        
+    # def process_filtered_components(self, filtered_components: Dict[str, List[FetchedComponent]]) -> List[ProcessedFile]:
+        """
+        Process components based on their category.
+        
+        Args:
+            filtered_components: Dictionary with categorized components
+            
+        Returns:
+            List of processed files ready for vectorization
+        """
+        processed_files = []
+        
+        # Process CSS files
+        for component in filtered_components['css_files']:
+            css_details = self.parse_css_file(component.file, component.fileContent, component.path)
+            processed_files.append(ProcessedFile(**css_details.model_dump()))
+        
+        # Process package.json files
+        for component in filtered_components['package_files']:
+            package_details = self.parse_package_json(component.file, component.fileContent, component.path)
+            processed_files.append(ProcessedFile(**package_details.model_dump()))
+        
+        # Process React components
+        if filtered_components['react_components']:
+            parsed_components = self.parse_components(filtered_components['react_components'])
+            for parsed in parsed_components:
+                processed_files.append(ProcessedFile(
+                    text=f"{parsed.name} {parsed.description} {' '.join(parsed.useCases)}",
+                    name=parsed.name,
+                    file_path=parsed.path,
+                    metadata=parsed.model_dump_json()
+                ))
+                
+        # Process design configuration files
+        for component in filtered_components['design_config_files']:
+            design_config = self.parse_design_config(component.file, component.fileContent, component.path)
+            processed_files.append(ProcessedFile(**design_config.model_dump()))
+        
+        return processed_files
+        
+    # def parse_design_config(self, file_name: str, file_content: str, file_path: str) -> ProcessedFile:
+    #     """
+    #     Parse design configuration files like tailwind.config.js.
+        
+    #     Args:
+    #         file_name: Name of the file
+    #         file_content: Content of the file
+    #         file_path: Path to the file
+            
+    #     Returns:
+    #         ProcessedFile with text for embedding and metadata for context
+    #     """
+    #     # Create type-specific metadata based on file name
+    #     if file_name == 'tailwind.config.js':
+    #         return self._parse_tailwind_config(file_name, file_content, file_path)
+    #     else:
+    #         # Generic design config handling
+    #         metadata = {
+    #             "file_type": "design_config",
+    #             "file_path": file_path,
+    #             "file_name": file_name,
+    #             "content_preview": file_content[:200] + "..." if len(file_content) > 200 else file_content
+    #         }
+            
+    #         text = f"Design configuration file: {file_path}\nContent: {file_content[:500]}"
+            
+    #         return ProcessedFile(
+    #             text=text,
+    #             name=file_name,
+    #             file_path=file_path,
+    #             metadata=json.dumps(metadata)
+    #         )
+            
+    # def _parse_tailwind_config(self, file_name: str, file_content: str, file_path: str) -> ProcessedFile:
+    #     """
+    #     Parse Tailwind CSS configuration file.
+        
+    #     Args:
+    #         file_name: Name of the file
+    #         file_content: Content of the file
+    #         file_path: Path to the file
+            
+    #     Returns:
+    #         ProcessedFile with Tailwind-specific text and metadata
+    #     """
+    #     # Extract key Tailwind config sections using regex
+    #     theme_match = re.search(r'theme\s*:\s*{([^}]+)}', file_content, re.DOTALL)
+    #     plugins_match = re.search(r'plugins\s*:\s*\[([^\]]+)\]', file_content, re.DOTALL)
+    #     extends_match = re.search(r'extends\s*:\s*{([^}]+)}', file_content, re.DOTALL)
+        
+    #     theme = theme_match.group(1).strip() if theme_match else ""
+    #     plugins = plugins_match.group(1).strip() if plugins_match else ""
+    #     extends = extends_match.group(1).strip() if extends_match else ""
+        
+    #     # Extract color palette if available
+    #     colors = {}
+    #     color_matches = re.finditer(r'colors\s*:\s*{([^}]+)}', file_content, re.DOTALL)
+    #     for match in color_matches:
+    #         color_section = match.group(1)
+    #         color_entries = re.finditer(r'(\w+)\s*:\s*[\'"]([^\'\"]+)[\'"]', color_section)
+    #         for entry in color_entries:
+    #             colors[entry.group(1)] = entry.group(2)
+        
+    #     # Create metadata
+    #     metadata = {
+    #         "file_type": "tailwind_config",
+    #         "file_path": file_path,
+    #         "has_theme": bool(theme),
+    #         "has_plugins": bool(plugins),
+    #         "has_extends": bool(extends),
+    #         "colors": colors
+    #     }
+        
+    #     # Create text representation for embedding
+    #     text_parts = [
+    #         f"Tailwind configuration file: {file_path}",
+    #         f"Theme configuration: {theme[:200] + '...' if len(theme) > 200 else theme}",
+    #         f"Plugins: {plugins[:200] + '...' if len(plugins) > 200 else plugins}",
+    #         f"Extensions: {extends[:200] + '...' if len(extends) > 200 else extends}",
+    #         f"Color palette: {', '.join(f'{k}: {v}' for k, v in colors.items())}"
+    #     ]
+        
+    #     return ProcessedFile(
+    #         text="\n".join(text_parts),
+    #         name=file_name,
+    #         file_path=file_path,
+    #         metadata=json.dumps(metadata)
+    #     )
 
-            # Process all React components at once
-            if react_components:
-                parsed_components = self.parse_components(react_components)
-                for parsed in parsed_components:
-                    processed_files.append(ProcessedFile(
-                        text=f"{parsed.name} {parsed.description} {' '.join(parsed.useCases)}",
-                        name=parsed.name,
-                        file_path=parsed.path,
-                        metadata=parsed.model_dump_json()
-                    ))
-
+    # def extract_design_components(self) -> List[ProcessedFile]:
+        try:
+            # Extract all components from the repository
+            all_components = self.extract_components()
+            
+            # Filter components by type
+            filtered_components = self.filter_components_by_type(all_components)
+            
+            # Process each type of component
+            processed_files = self.process_filtered_components(filtered_components)
+            
             return processed_files
 
         except Exception as e:
             print("Error in extract_design_components:", str(e))
             raise
-
+    
