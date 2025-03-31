@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status, Header
+from fastapi import APIRouter, HTTPException, status, Header, Depends
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 import json
@@ -6,6 +6,9 @@ from app.services.gemini_service import ChatMessage
 from app.api.dependencies import PineconeServiceDep, OpenAIServiceDep, DeepSeekServiceDep
 from app.lib.constants.model_config import SYSTEM_PROMPTS
 from app.models.context import Context, FileNode, InternalComponent
+from app.services.database_service import DatabaseService
+import app.utils.llm_parser as Utils
+from app.models.builder_steps import ReactResponse
 
 router = APIRouter()
 
@@ -60,6 +63,14 @@ class GenerateComponentRequest(BaseModel):
     forcedComponents: list[str] = []
     enableAISelection: bool = True
 
+class GenerateComponentResponse(BaseModel):
+    status: str
+    generated_code: ReactResponse
+    conversation: list[ChatMessage]
+    context: dict = {
+        "components_used": int,
+        "query": str
+    }
 
 @router.post("/generate", status_code=status.HTTP_200_OK)
 async def generate_with_rag(
@@ -67,33 +78,57 @@ async def generate_with_rag(
     pinecone_service: PineconeServiceDep,
     openai_service: DeepSeekServiceDep,
     userId: str = Header(None),
+    database_service: DatabaseService = Depends(DatabaseService)
 ):
     """
     Query similar components and use them as context to generate 
     new components using the RAG approach.
     """
     try:
-        query_results = pinecone_service.query(
-            query_text=request.query_text,
-            namespace=userId,
-        )
-        
-        # Create internal components from query results
-        internal_components = []
-        for match in query_results.get('matches', []):
-            internal_components.append(
-                InternalComponent(
-                    import_path=match['id'],
-                    content=match['metadata']
-                )
+        # Get components from vector search
+        query_results = {}
+        if request.enableAISelection:
+
+            query_results = pinecone_service.query(
+                query_text=request.query_text,
+                namespace=userId,
             )
+        
+        # Get paths from both vector search and forced components
+        component_paths = [match['id'] for match in query_results.get('matches', [])]
+        component_paths.extend(request.forcedComponents)
+        
+        # Fetch component details from database
+        components = []
+        if component_paths:
+            db_components = await database_service.find_many(
+                "components",
+                {
+                    "componentPath": {"$in": component_paths},
+                    "userId": userId
+                }
+            )
+            
+            # Create internal components with full details
+            for component in db_components:
+                components.append(
+                    InternalComponent(
+                        path=component["componentPath"],
+                        name=component["componentName"],
+                        description=component.get("description", ""),
+                        useCase=component.get("useCase", ""),
+                        codeSamples=component.get("codeSamples", []),
+                        dependencies=component.get("dependencies", []),
+                        importPath=component.get("importPath", "")
+                    )
+                )
         
         # Create context object
         context = Context(
             user_query=request.query_text,
             codebase=request.codebase, 
             system_prompt=SYSTEM_PROMPTS["react_generator"],
-            internal_components=internal_components,
+            internal_components=components,
             conversation=request.conversation,
             additional_user_prompt=SYSTEM_PROMPTS["DESIGN"] if not request.conversation else None
         )
@@ -103,11 +138,16 @@ async def generate_with_rag(
         
         response = openai_service.chat_completion(messages=messages)
         
+        react_response = Utils.parse_llm_response_to_react_steps(response.get("text", "")) 
+
+        request.conversation.extend([ChatMessage(role="user",content=request.query_text)])
+
         return {
             "status": "success",
-            "generated_code": response["text"],
+            "generated_code": react_response,
+            "conversation": request.conversation,
             "context": {
-                "components_used": len(query_results.get('matches', [])),
+                "components_used": len(components),
                 "query": request.query_text
             }
         }

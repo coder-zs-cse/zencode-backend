@@ -8,6 +8,7 @@ class StepType(Enum):
     CreateFolder = 1
     EditFile = 2
     DeleteFile = 3
+    TextDisplay = 4
 
 class StepStatus(Enum):
     PENDING = "PENDING"
@@ -17,7 +18,6 @@ class StepStatus(Enum):
 class FileStep(BaseModel):
     id: int = Field(..., description="Unique identifier for the file step.")
     title: str = Field(..., description="Title of the file step. Example Creating File src/App.tsx")
-    # description: str = Field(..., description="Detailed description of the file step.")
     type: int = Field(..., description="Type of the step, represented as an integer.")
     content: str = Field(..., description="Code associated with the file.")
     path: str = Field(..., description="Full file path")

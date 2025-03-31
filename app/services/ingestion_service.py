@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from app.services.openai_service import OpenAIService, ChatMessage
 from app.core.config import get_settings
 from app.lib.constants.model_config import SYSTEM_PROMPTS
+from app.utils.llm_parser import parse_llm_response_to_model_list
 
 
 class FetchedComponent(BaseModel):
@@ -148,37 +149,21 @@ class FetchComponentsService:
                 messages=messages
             )
 
-            # Extract JSON using regex
-            response_text = response.get("text", "")
-            json_match = re.search(r'\{[\s\S]*\}', response_text)
-            
-            if not json_match:
-                print("No JSON found in response for batch")
-                return []
+            # Parse the response into Component objects using our utility function
+            components = parse_llm_response_to_model_list(
+                text=response.get("text", ""),
+                model_class=Component,
+                list_key="components"
+            )
 
-            batch_components = []
-            try:
-                parsed_data = json.loads(json_match.group(0))
-                components_data = parsed_data.get("components", [])
-                
-                # Create Component objects with correct name and path from original FetchedComponent
-                # Make sure we have the same number of components in both lists
-                min_length = min(len(components_data), len(batch))
-                
-                # Use zip to iterate through both lists simultaneously
-                for orig_comp, comp_data in zip(batch, components_data[:min_length]):
-                    # Use the original component's path and name
-                    comp_data["name"] = orig_comp.file
-                    comp_data["path"] = orig_comp.path
-                    comp_data["code"] = orig_comp.fileContent
-                    batch_components.append(Component(**comp_data))
-                
-            except json.JSONDecodeError as e:
-                print(f"Error parsing JSON from response: {str(e)}")
-            except Exception as e:
-                print(f"Error parsing component data: {str(e)}")
+            # Update components with original file information
+            min_length = min(len(components), len(batch))
+            for i in range(min_length):
+                components[i].name = batch[i].file
+                components[i].path = batch[i].path
+                components[i].code = batch[i].fileContent
 
-            return batch_components
+            return components
             
         except Exception as e:
             print(f"Error in _process_component_batch: {str(e)}")
@@ -203,7 +188,7 @@ class FetchComponentsService:
                     fetchedComponents.append(FetchedComponent(
                         file=item['name'],
                         fileContent=content_response.text,
-                        path=item['path']
+                        path=self._modify_path_with_internal(item['path'])
                     ))
                 elif item['type'] == 'dir':
                     # Recursively fetch contents of subdirectories
@@ -555,4 +540,14 @@ class FetchComponentsService:
         except Exception as e:
             print("Error in extract_design_components:", str(e))
             raise
+
+    def _modify_path_with_internal(self, path: str) -> str:
+        """Add 'internal' directory after 'ui' in the path if 'ui' exists."""
+        parts = path.split('/')
+        for i, part in enumerate(parts):
+            if part.lower() == 'ui':
+                # Insert 'internal' after 'ui'
+                parts.insert(i + 1, 'internal')
+                break
+        return '/'.join(parts)
     

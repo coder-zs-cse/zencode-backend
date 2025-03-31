@@ -10,22 +10,16 @@ app = FastAPI()
 
 @app.middleware("http")
 async def add_user_id_header(request: Request, call_next):
-    print("Incoming headers:", request.headers.items())
     existing_user_id = request.headers.get("userid")  # FastAPI normalizes header names to lowercase
     if not existing_user_id:
-        print("No userId found, creating new user")
         _id = await database_service.insert_one("users", { "created_at": str(datetime.utcnow())})
-        print(f"Created new user with _id: {_id}")
-        # Modify headers safely
         request.scope["headers"] = [
             (name, value) for name, value in request.scope["headers"]
             if name.lower() != b"userid"
         ] + [(b"userid", str(_id).encode())]
-        
-        print("Updated request headers:", request.headers.items())
+
         response = await call_next(request)
         response.headers["x-user-id"] = str(_id)
-        print("Set response header x-user-id:", str(_id))
         return response
     return await call_next(request)
 

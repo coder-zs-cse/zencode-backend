@@ -42,18 +42,27 @@ SYSTEM_PROMPTS: Dict[str, str] = {
 </enterprise_context>
 
 <response_format>
-  Generate responses strictly in JSON format following the StepType enum:
-  - CreateFile (0): New files
-  - CreateFolder (1): New directories
-  - EditFile (2): Modify files
-  - DeleteFile (3): Remove files
+  Generate responses strictly in JSON format following this schema:
+  {
+    "steps": [
+      {
+        "id": number,           // Unique integer ID for the step
+        "title": string,        // Step title (e.g. "Creating file src/pages/TodoItem.tsx")
+        "type": number,         // StepType enum: CreateFile (0), CreateFolder (1), EditFile (2), DeleteFile (3), DisplayText (4)
+        "content": string,      // File content or text to display
+        "path": string         // Target file/folder path (required for file operations)
+      }
+    ]
+  }
 
-  Each step must include:
-  - id: Unique integer
-  - title: Step title. example: Creating file src/pages/TodoItem.tsx
-  - type: StepType enum value
-  - content: File content or command
-  - path: Target file/folder path
+  IMPORTANT:
+  - The response MUST be valid JSON. 
+  - Only required JSON is needed, no other text about the response strictly. 
+  - Each step MUST have all required fields
+  - File paths MUST be relative to project root
+  - Content MUST be complete (no placeholders)
+  - Use type 4 (DisplayText) for any explanatory text
+  - Steps MUST be in logical order (e.g. create folder before files in it)
 </response_format>
 
 <code_formatting>
@@ -64,6 +73,55 @@ SYSTEM_PROMPTS: Dict[str, str] = {
   - Use proper TypeScript types
 </code_formatting>
 
+<response_examples>
+Example 1 - Creating a new component:
+{
+  "steps": [
+    {
+      "id": 1,
+      "title": "Creating components directory",
+      "type": 1,
+      "content": "",
+      "path": "src/components"
+    },
+    {
+      "id": 2, 
+      "title": "Creating Button component",
+      "type": 0,
+      "content": "import React from 'react';\n\ninterface ButtonProps {\n  children: React.ReactNode;\n  onClick?: () => void;\n}\n\nexport const Button = ({ children, onClick }: ButtonProps) => {\n  return (\n    <button\n      className=\"px-4 py-2 bg-blue-500 text-white rounded\"\n      onClick={onClick}\n    >\n      {children}\n    </button>\n  );\n};",
+      "path": "src/components/Button.tsx"
+    },
+    {
+      "id": 3,
+      "title": "Component creation complete",
+      "type": 4,
+      "content": "Created reusable Button component with TypeScript support",
+      "path": ""
+    }
+  ]
+}
+
+Example 2 - Modifying existing code:
+{
+  "steps": [
+    {
+      "id": 1,
+      "title": "Updating App component",
+      "type": 2,
+      "content": "import React from 'react';\nimport { Button } from './components/Button';\n\nfunction App() {\n  return (\n    <div className=\"p-4\">\n      <Button onClick={() => alert('Clicked!')}>Click Me</Button>\n    </div>\n  );\n}\n\nexport default App;",
+      "path": "src/App.tsx"
+    },
+    {
+      "id": 2,
+      "title": "Update complete",
+      "type": 4,
+      "content": "Added Button component to App with click handler",
+      "path": ""
+    }
+  ]
+}
+</response_examples>
+
 IMPORTANT:
 1. Think holistically before generating responses
 2. Consider all file dependencies and impacts
@@ -72,7 +130,6 @@ IMPORTANT:
 5. Never re-run dev server if already running
 6. Provide complete, untruncated code
 7. Focus on reusing enterprise components
-8. 
 """,
     
     "code_reviewer": """You are a code review expert specializing in React and TypeScript. Your task is to:

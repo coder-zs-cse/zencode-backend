@@ -173,7 +173,8 @@ class DatabaseService:
                 f"{self.base_url}/{collection}/find",
                 params={"query": query}
             )
-            return response.json() if response.status_code == 200 else []
+            result = response.json()
+            return result if response.status_code == 200 else []
         except Exception as e:
             print(f"Error finding documents in {collection}: {str(e)}")
             return []
