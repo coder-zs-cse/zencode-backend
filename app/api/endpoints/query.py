@@ -9,6 +9,7 @@ from app.models.context import Context, FileNode, InternalComponent
 from app.services.database_service import DatabaseService
 import app.utils.llm_parser as Utils
 from app.models.builder_steps import ReactResponse
+import re
 
 router = APIRouter()
 
@@ -61,6 +62,7 @@ class GenerateComponentRequest(BaseModel):
     conversation: list[ChatMessage] = []
     codebase: list[FileNode] = []
     forcedComponents: list[str] = []
+    internalComponents: list[str] = []
     enableAISelection: bool = True
 
 class GenerateComponentResponse(BaseModel):
@@ -100,7 +102,11 @@ async def generate_with_rag(
         
         # Fetch component details from database
         components = []
+        css_files = []
+        dependencies = {}
+        
         if component_paths:
+            # Fetch components
             db_components = await database_service.find_many(
                 "components",
                 {
@@ -115,13 +121,39 @@ async def generate_with_rag(
                     InternalComponent(
                         path=component["componentPath"],
                         name=component["componentName"],
-                        description=component.get("description", ""),
-                        useCase=component.get("useCase", ""),
-                        codeSamples=component.get("codeSamples", []),
-                        dependencies=component.get("dependencies", []),
-                        importPath=component.get("importPath", "")
+                        # description=component.get("description", ""),
+                        # useCase=component.get("useCase", ""),
+                        # codeSamples=component.get("codeSamples", []),
+                        # dependencies=component.get("dependencies", []),
+                        inputProps=component.get("inputProps", "")
                     )
                 )
+
+            # Fetch GitHub repo data for CSS and dependencies
+            github_data = await database_service.find_one(
+                "github",
+                {
+                    "userId": userId,
+                    "githubUrl": {"$exists": True}
+                }
+            )
+
+            if github_data:
+                # Get CSS files
+                if github_data.get("cssFiles"):
+                    css_files = json.loads(github_data["cssFiles"])
+
+                # Parse package.json data
+                if github_data.get("packageJson"):
+                    package_data = json.loads(github_data["packageJson"])
+                    if package_data:
+                        # Get the first package.json entry (assuming main package.json)
+                        main_package = package_data[0] if isinstance(package_data, list) else package_data
+                        if main_package:
+                            if "dependencies" in main_package:
+                                dependencies["dependencies"] = main_package["dependencies"].split(",")
+                            if "devDependencies" in main_package:
+                                dependencies["devDependencies"] = main_package["devDependencies"].split(",")
         
         # Create context object
         context = Context(
@@ -130,7 +162,9 @@ async def generate_with_rag(
             system_prompt=SYSTEM_PROMPTS["react_generator"],
             internal_components=components,
             conversation=request.conversation,
-            additional_user_prompt=SYSTEM_PROMPTS["DESIGN"] if not request.conversation else None
+            additional_user_prompt=SYSTEM_PROMPTS["DESIGN"] if not request.conversation else None,
+            css_tokens={"files": css_files},
+            dependencies=dependencies
         )
         
         # Construct messages from context

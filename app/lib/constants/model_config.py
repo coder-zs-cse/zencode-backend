@@ -35,6 +35,9 @@ SYSTEM_PROMPTS: Dict[str, str] = {
   
   CRITICAL REQUIREMENTS:
   - ONLY use provided internal components from the enterprise library
+  - When using an internal component, you MUST use its exact import path as provided in the 'path' attribute
+  - DO NOT recreate or reimplement components that already exist in the internal library
+  - DO NOT use external component libraries if similar functionality exists in internal components
   - Strictly follow enterprise design standards
   - Only use approved npm packages. Do not use any external npm packages not used in the given context. 
   - Focus on rapid prototyping by reusing existing components

@@ -160,7 +160,9 @@ class PineconeService:
                         'useCase': ' '.join(parsed.useCases) if parsed.useCases else '',
                         'codeSamples': parsed.codeExamples,
                         'dependencies': parsed.dependencies if hasattr(parsed, 'dependencies') else [],
-                        'importPath': parsed.importPath if hasattr(parsed, 'importPath') else ''
+                        'importPath': parsed.importPath if hasattr(parsed, 'importPath') else '',
+                        'inputProps': json.dumps(parsed.inputProps) if hasattr(parsed, 'inputProps') else '',
+                        'code': parsed.code if hasattr(parsed,'code') else ''
                     }
                 }
                 
@@ -224,10 +226,22 @@ class PineconeService:
             
         # Collect package.json files data
         for component in filtered_components.get('package_files', []):
-            package_json_data.append({
-                'path': component.path,
-                'content': component.fileContent
-            })
+            try:
+                # Parse package.json content
+                package_content = json.loads(component.fileContent)
+                # Extract dependencies and devDependencies
+                dependencies = list(package_content.get('dependencies', {}).keys())
+                dev_dependencies = list(package_content.get('devDependencies', {}).keys())
+                
+                package_json_data.append({
+                    'path': component.path,
+                    'dependencies': ','.join(dependencies),
+                    'devDependencies': ','.join(dev_dependencies)
+                })
+            except json.JSONDecodeError:
+                # Handle invalid JSON gracefully
+                print(f"Warning: Could not parse package.json at {component.path}")
+                continue
             
         # Collect design config files data
         for component in filtered_components.get('design_config_files', []):
