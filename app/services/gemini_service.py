@@ -7,7 +7,7 @@ from app.lib.constants.model_config import SYSTEM_PROMPTS, DEFAULT_MAX_TOKENS, D
 
 class ChatMessage(BaseModel):
     role: str
-    content: str
+    content: Union[str, Any]  # Updated to allow content to be either a string or an object
 
 class ModelConfig:
     def __init__(self, 

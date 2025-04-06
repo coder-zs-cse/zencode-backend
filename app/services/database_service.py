@@ -1,6 +1,6 @@
 from httpx import AsyncClient
 from app.core.config import get_settings
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 from pydantic import BaseModel, Field
 
 settings = get_settings()
@@ -102,6 +102,29 @@ class Component(BaseModel):
     codeSamples: List[str] = Field(default_factory=list)
     dependencies: List[str] = Field(default_factory=list)
     importPath: str = ""
+    
+    class Config:
+        validate_assignment = True
+        arbitrary_types_allowed = True
+
+class FileNode(BaseModel):
+    """Model representing a file in the codebase."""
+    fileName: str
+    filePath: str
+    fileContent: str
+
+class Message(BaseModel):
+    """Model representing a message in the session."""
+    role: str
+    content: Union[str, Dict[str, Any]]
+
+class Session(BaseModel):
+    """Model representing a chat session."""
+    userId: str
+    messages: List[Message] = Field(default_factory=list)
+    codebase: List[FileNode] = Field(default_factory=list)
+    internalComponents: List[str] = Field(default_factory=list)
+    npmPackages: List[str] = Field(default_factory=list)
     
     class Config:
         validate_assignment = True
@@ -229,6 +252,51 @@ class DatabaseService:
             return result.get("deletedCount", 0) > 0
         except Exception as e:
             print(f"Error deleting document from {collection}: {str(e)}")
+            return False
+
+    async def get_or_create_session(self, user_id: str) -> str:
+        """Get an existing session or create a new one for the user.
+        
+        Returns:
+            Tuple of (session_data, is_new_session)
+        """
+        try:
+            # Try to find existing session
+            # session = await self.find_one("sessions", {"userId": user_id})
+            # if session:
+            #     return session, False
+            
+            # # Create new session if none exists
+            new_session = Session(userId=user_id)
+            session_id = await self.insert_one("sessions", new_session.dict())
+            if not session_id:
+                raise Exception("Failed to create new session")
+            
+            return session_id
+            
+        except Exception as e:
+            print(f"Error in get_or_create_session: {str(e)}")
+            raise
+
+    async def update_session(self, session_id: str, updates: Dict[str, Any]) -> bool:
+        """Update a session with new data.
+        
+        Args:
+            session_id: The ID of the session to update
+            updates: The updates to apply to the session
+            
+        Returns:
+            bool indicating success
+        """
+        try:
+            success = await self.update_one(
+                "sessions",
+                {"_id": session_id},
+                {"$set": updates}
+            )
+            return success
+        except Exception as e:
+            print(f"Error updating session: {str(e)}")
             return False
 
 # Create a singleton instance

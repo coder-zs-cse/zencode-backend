@@ -8,7 +8,7 @@ from app.lib.constants.model_config import SYSTEM_PROMPTS
 from app.models.context import Context, FileNode, InternalComponent
 from app.services.database_service import DatabaseService
 import app.utils.llm_parser as Utils
-from app.models.builder_steps import ReactResponse
+from app.models.builder_steps import ReactResponse, get_dummy_response
 import re
 
 router = APIRouter()
@@ -64,6 +64,7 @@ class GenerateComponentRequest(BaseModel):
     forcedComponents: list[str] = []
     internalComponents: list[str] = []
     enableAISelection: bool = True
+    session_id: Optional[str] = ""
 
 class GenerateComponentResponse(BaseModel):
     status: str
@@ -78,7 +79,7 @@ class GenerateComponentResponse(BaseModel):
 async def generate_with_rag(
     request: GenerateComponentRequest,
     pinecone_service: PineconeServiceDep,
-    openai_service: DeepSeekServiceDep,
+    openai_service: OpenAIServiceDep,
     userId: str = Header(None),
     database_service: DatabaseService = Depends(DatabaseService)
 ):
@@ -87,6 +88,11 @@ async def generate_with_rag(
     new components using the RAG approach.
     """
     try:
+        if request.session_id:
+            session_id = request.session_id
+        else:   
+            session_id = await database_service.get_or_create_session(userId)
+        
         # Get components from vector search
         query_results = {}
         if request.enableAISelection:
@@ -170,14 +176,26 @@ async def generate_with_rag(
         # Construct messages from context
         messages = context.construct_messages()
         
+        # Use dummy response instead of actual generation
+        # react_response = get_dummy_response()
+
         response = openai_service.chat_completion(messages=messages)
         
-        react_response = Utils.parse_llm_response_to_react_steps(response.get("text", "")) 
+        react_response = Utils.parse_llm_response_to_react_steps(response.get("text", ""))
 
         request.conversation.extend([ChatMessage(role="user",content=request.query_text)])
+        request.conversation.extend([ChatMessage(role="assistant",content=react_response)])
+
+        session_updates = {
+            "userId": userId,
+            "messages": [msg.model_dump() for msg in request.conversation],  # Serialize message objects
+            "codebase": [file.model_dump() for file in request.codebase],  # Serialize file objects
+        }
+        await database_service.update_session(session_id, session_updates)
 
         return {
             "status": "success",
+            "session_id": session_id,
             "generated_code": react_response,
             "conversation": request.conversation,
             "context": {
