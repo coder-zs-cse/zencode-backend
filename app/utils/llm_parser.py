@@ -70,8 +70,8 @@ def parse_llm_response_to_model_list(text: str, model_class: Type[T], list_key: 
         items = json_data.get(list_key, [])
         # Parse each item into a model instance
         return [model_class(**item) for item in items]
-    except Exception:
-        return []
+    except Exception as e:
+        raise RuntimeError(f"Error during LLM parsing: {str(e)}")
 
 def parse_llm_response_to_react_steps(text: str) -> ReactResponse:
     """

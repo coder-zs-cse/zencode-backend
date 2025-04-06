@@ -16,6 +16,11 @@ class FetchedComponent(BaseModel):
     fileContent: str
     path: str
 
+class LLMComponent(BaseModel):
+    description: str
+    inputProps: List[Dict[str, Any]]
+    useCases: List[str]
+    codeExamples: List[str]
 
 class Component(BaseModel):
     name: str
@@ -119,11 +124,12 @@ class FetchComponentsService:
 
         except Exception as e:
             print(f"Error in parse_components: {str(e)}")
-            return []
+            raise RuntimeError(f"Error during parsing components: {str(e)}")
             
     def _process_component_batch(self, batch: List[FetchedComponent]) -> List[Component]:
         """Process a batch of components using OpenAI LLM."""
         try:
+            result_components: list[Component] = []
             # Combine all component files with their paths for this batch
             combined_content = "\n\n".join([
                 f"File: {comp.path}\n{comp.fileContent}" 
@@ -150,24 +156,29 @@ class FetchComponentsService:
             )
 
             # Parse the response into Component objects using our utility function
-            components = parse_llm_response_to_model_list(
+            parsed_components = parse_llm_response_to_model_list(
                 text=response.get("text", ""),
-                model_class=Component,
+                model_class=LLMComponent,
                 list_key="components"
             )
 
             # Update components with original file information
-            min_length = min(len(components), len(batch))
+            min_length = min(len(parsed_components), len(batch))
             for i in range(min_length):
-                components[i].name = batch[i].file
-                components[i].path = batch[i].path
-                components[i].code = batch[i].fileContent
 
-            return components
+                component_data = parsed_components[i].model_dump()
+
+                component_data["name"] = batch[i].file
+                component_data["path"] = batch[i].path  
+                component_data["code"] = batch[i].fileContent
+
+                result_components.append(Component(**component_data))
+
+            return result_components
             
         except Exception as e:
             print(f"Error in _process_component_batch: {str(e)}")
-            return []
+            raise RuntimeError(f"Error during component batch processing: {str(e)}")
 
     def fetch_directory_contents(self, path: str = "") -> list[FetchedComponent]:
         """Recursively fetch contents of a directory."""

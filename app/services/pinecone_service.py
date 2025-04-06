@@ -111,95 +111,103 @@ class PineconeService:
         access_token: Optional[str] = None,
         namespace: Optional[str] = None
     ) -> Dict[str, Any]:
-
-        # Initialize the fetch service
-        fetch_service = FetchComponentsService(github_url, access_token)
-        
-        # Extract all components first
-        all_components = fetch_service.extract_components()
-        
-        # Filter components by type
-        filtered_components = fetch_service.filter_components_by_type(all_components)
-        
-        # Save non-React components directly to MongoDB without parsing
-        await self._save_non_react_components_to_db(filtered_components, namespace, github_url)
-        
-        # Process React components in batches
-        react_components = filtered_components['react_components']
-        total_react_components = len(react_components)
-        total_processed = 0
-        BATCH_SIZE = 10
-        
-        total_vectors_upserted = 0
-        
-        # Process React components in batches
-        for i in range(0, total_react_components, BATCH_SIZE):
-            batch = react_components[i:i+BATCH_SIZE]
-            batch_size = len(batch)
+        try:
+            # Initialize the fetch service
+            fetch_service = FetchComponentsService(github_url, access_token)
             
-            # Parse this batch of React components
-            parsed_components = fetch_service.parse_components(batch)
+            # Extract all components first
+            all_components = fetch_service.extract_components()
             
-            # Create Pinecone records (minimal info for vector search)
-            pinecone_records = []
-            # Create list to store MongoDB updates
-            mongo_updates = []
+            # Filter components by type
+            filtered_components = fetch_service.filter_components_by_type(all_components)
             
-            for parsed in parsed_components:
-                # Prepare MongoDB update operation for this component
-                filter_query = {
-                    'userId': namespace,
-                    'componentPath': parsed.path,
-                    'githubUrl': github_url
-                }
+            # Save non-React components directly to MongoDB without parsing
+            await self._save_non_react_components_to_db(filtered_components, namespace, github_url)
+            
+            # Process React components in batches
+            react_components = filtered_components['react_components']
+            total_react_components = len(react_components)
+            total_processed = 0
+            BATCH_SIZE = 10
+            
+            total_vectors_upserted = 0
+            
+            # Process React components in batches
+            for i in range(0, total_react_components, BATCH_SIZE):
+                batch = react_components[i:i+BATCH_SIZE]
+                batch_size = len(batch)
                 
-                update_operation = {
-                    '$set': {
-                        'indexingStatus': True,
-                        'description': parsed.description,
-                        'useCase': ' '.join(parsed.useCases) if parsed.useCases else '',
-                        'codeSamples': parsed.codeExamples,
-                        'dependencies': parsed.dependencies if hasattr(parsed, 'dependencies') else [],
-                        'importPath': parsed.importPath if hasattr(parsed, 'importPath') else '',
-                        'inputProps': json.dumps(parsed.inputProps) if hasattr(parsed, 'inputProps') else '',
-                        'code': parsed.code if hasattr(parsed,'code') else ''
+                # Parse this batch of React components
+                parsed_components = fetch_service.parse_components(batch)
+                
+                # Create Pinecone records (minimal info for vector search)
+                pinecone_records = []
+                # Create list to store MongoDB updates
+                mongo_updates = []
+                
+                for parsed in parsed_components:
+                    # Prepare MongoDB update operation for this component
+                    filter_query = {
+                        'userId': namespace,
+                        'componentPath': parsed.path,
+                        'githubUrl': github_url
                     }
-                }
+                    
+                    update_operation = {
+                        '$set': {
+                            'indexingStatus': True,
+                            'description': parsed.description,
+                            'useCase': ' '.join(parsed.useCases) if parsed.useCases else '',
+                            'codeSamples': parsed.codeExamples,
+                            'dependencies': parsed.dependencies if hasattr(parsed, 'dependencies') else [],
+                            'importPath': parsed.importPath if hasattr(parsed, 'importPath') else '',
+                            'inputProps': json.dumps(parsed.inputProps) if hasattr(parsed, 'inputProps') else '',
+                            'code': parsed.code if hasattr(parsed,'code') else ''
+                        }
+                    }
+                    
+                    # Add to batch updates
+                    mongo_updates.append({
+                        'filter': filter_query,
+                        'update': update_operation
+                    })
+                    
+                    # Create a minimal record for Pinecone
+                    pinecone_record = {
+                        'id': parsed.path,  # file path as ID
+                        'text': f"{parsed.name} {parsed.description} {' '.join(parsed.useCases)}",  # text for embedding
+                        'user_id': namespace
+                    }
+                    pinecone_records.append(pinecone_record)
                 
-                # Add to batch updates
-                mongo_updates.append({
-                    'filter': filter_query,
-                    'update': update_operation
-                })
+                # Batch update MongoDB components
+                if namespace and mongo_updates:
+                    await database_service.update_many('components', mongo_updates)
                 
-                # Create a minimal record for Pinecone
-                pinecone_record = {
-                    'id': parsed.path,  # file path as ID
-                    'text': f"{parsed.name} {parsed.description} {' '.join(parsed.useCases)}",  # text for embedding
-                    'user_id': namespace
-                }
-                pinecone_records.append(pinecone_record)
+                # Upsert vectors to Pinecone
+                if namespace and pinecone_records:
+                    await self.upsert_vectors(pinecone_records, namespace)
+                    total_vectors_upserted += len(pinecone_records)
+                
+                # Update total processed count
+                total_processed += batch_size
             
-            # Batch update MongoDB components
-            if namespace and mongo_updates:
-                await database_service.update_many('components', mongo_updates)
-            
-            # Upsert vectors to Pinecone
-            if namespace and pinecone_records:
-                await self.upsert_vectors(pinecone_records, namespace)
-                total_vectors_upserted += len(pinecone_records)
-            
-            # Update total processed count
-            total_processed += batch_size
-            
-        # Return statistics about the operation
-        return {
-            'total_components': len(all_components),
-            'total_react_components': total_react_components,
-            'vectors_upserted': total_vectors_upserted,
-            'namespace': namespace,
-            'user_id': namespace
-        }
+            # Return statistics about the operation
+            return {
+                'total_components': len(all_components),
+                'total_react_components': total_react_components,
+                'vectors_upserted': total_vectors_upserted,
+                'namespace': namespace,
+                'user_id': namespace
+            }
+        except Exception as e:
+            # Handle exceptions and log the error
+            print(f"An error occurred while processing GitHub URL {github_url}: {e}")
+            return {
+                'error': str(e),
+                'namespace': namespace,
+                'user_id': namespace
+            }
         
     async def _save_non_react_components_to_db(
         self, 

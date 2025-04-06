@@ -70,11 +70,10 @@ async def train_github_components(
                 print(f"Error in background training: {str(e)}")
                 # Update user status to ERROR
                 await database_service.update_one(
-                    "users",
-                    {"_id": userid},
+                    "github",
+                    {"userId": userid},
                     {"$set": {
                         "indexingStatus": "ERROR",
-                        "lastError": str(e)
                     }}
                 )
         
