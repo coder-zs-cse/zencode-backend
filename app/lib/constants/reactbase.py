@@ -121,42 +121,24 @@ reactBasejson = [
    },
    {
      "id": 6,
-     "title": "Creating file tsconfig.app.json",
-     "description": "",
-     "type": StepType.CreateFile.value,
-     "status": StepStatus.PENDING.value,
-     "content": "{\n  \"compilerOptions\": {\n    \"target\": \"ES2020\",\n    \"useDefineForClassFields\": true,\n    \"lib\": [\"ES2020\", \"DOM\", \"DOM.Iterable\"],\n    \"module\": \"ESNext\",\n    \"skipLibCheck\": true,\n\n    /* Bundler mode */\n    \"moduleResolution\": \"bundler\",\n    \"allowImportingTsExtensions\": true,\n    \"isolatedModules\": true,\n    \"moduleDetection\": \"force\",\n    \"noEmit\": true,\n    \"jsx\": \"react-jsx\",\n\n    /* Linting */\n    \"strict\": true,\n    \"noUnusedLocals\": true,\n    \"noUnusedParameters\": true,\n    \"noFallthroughCasesInSwitch\": true\n  },\n  \"include\": [\"src\"]\n}",
-     "path": "tsconfig.app.json"
-   },
-   {
-     "id": 7,
      "title": "Creating file tsconfig.json",
      "description": "",
      "type": StepType.CreateFile.value,
      "status": StepStatus.PENDING.value,
-     "content": "{\n  \"files\": [],\n  \"references\": [\n    { \"path\": \"./tsconfig.app.json\" },\n    { \"path\": \"./tsconfig.node.json\" }\n  ]\n}",
+     "content": "{\n\t\"compilerOptions\": {\n\t\t\"target\": \"ES2020\",\n\t\t\"module\": \"ESNext\",\n\t\t\"lib\": [\"ES2020\", \"DOM\", \"DOM.Iterable\"],\n\t\t\"jsx\": \"react-jsx\",\n\t\t\"skipLibCheck\": true,\n\t\t\"moduleResolution\": \"bundler\",\n\t\t\"allowImportingTsExtensions\": true,\n\t\t\"isolatedModules\": true,\n\t\t\"noEmit\": true,\n\t\t\"strict\": true,\n\t\t\"baseUrl\": \".\",\n\t\t\"paths\": {\n\t\t\t\"@/*\": [\"./src/*\"]\n\t\t},\n\t\t\"noUnusedLocals\": true,\n\t\t\"noUnusedParameters\": true,\n\t\t\"noFallthroughCasesInSwitch\": true,\n\t\t\"moduleDetection\": \"force\"\n\t},\n\t\"include\": [\"src\", \"vite.config.ts\"]\n}",
      "path": "tsconfig.json"
    },
    {
-     "id": 8,
-     "title": "Creating file tsconfig.node.json",
-     "description": "",
-     "type": StepType.CreateFile.value,
-     "status": StepStatus.PENDING.value,
-     "content": "{\n  \"compilerOptions\": {\n    \"target\": \"ES2022\",\n    \"lib\": [\"ES2023\"],\n    \"module\": \"ESNext\",\n    \"skipLibCheck\": true,\n\n    /* Bundler mode */\n    \"moduleResolution\": \"bundler\",\n    \"allowImportingTsExtensions\": true,\n    \"isolatedModules\": true,\n    \"moduleDetection\": \"force\",\n    \"noEmit\": true,\n\n    /* Linting */\n    \"strict\": true,\n    \"noUnusedLocals\": true,\n    \"noUnusedParameters\": true,\n    \"noFallthroughCasesInSwitch\": true\n  },\n  \"include\": [\"vite.config.ts\"]\n}",
-     "path": "tsconfig.node.json"
-   },
-   {
-     "id": 9,
+     "id": 7,
      "title": "Creating file vite.config.ts",
      "description": "",
      "type": StepType.CreateFile.value,
      "status": StepStatus.PENDING.value,
-     "content": "import { defineConfig } from 'vite';\nimport react from '@vitejs/plugin-react';\n\n// https://vitejs.dev/config/\nexport default defineConfig({\n  plugins: [react()],\n  optimizeDeps: {\n    exclude: ['lucide-react'],\n  },\n});",
+     "content": "import { defineConfig } from 'vite';\nimport react from '@vitejs/plugin-react';\n\n// https://vitejs.dev/config/\nexport default defineConfig({\n  plugins: [react()],\n  resolve: {\n    alias: {\n      '@': '/src'\n    }\n  },\n  optimizeDeps: {\n    exclude: ['lucide-react'],\n  },\n});",
      "path": "vite.config.ts"
    },
    {
-     "id": 10,
+     "id": 8,
      "title": "Creating file src/App.tsx",
      "description": "",
      "type": StepType.CreateFile.value,
@@ -165,7 +147,7 @@ reactBasejson = [
      "path": "src/App.tsx"
    },
    {
-     "id": 11,
+     "id": 9,
      "title": "Creating file src/index.css",
      "description": "",
      "type": StepType.CreateFile.value,
@@ -174,7 +156,7 @@ reactBasejson = [
      "path": "src/index.css"
    },
    {
-     "id": 12,
+     "id": 10,
      "title": "Creating file src/main.tsx",
      "description": "",
      "type": StepType.CreateFile.value,
@@ -183,7 +165,7 @@ reactBasejson = [
      "path": "src/main.tsx"
    },
    {
-     "id": 13,
+     "id": 11,
      "title": "Creating file src/vite-env.d.ts",
      "description": "",
      "type": StepType.CreateFile.value,

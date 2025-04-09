@@ -1,14 +1,16 @@
 from fastapi import APIRouter, HTTPException, status, Header, Depends
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import json
 from app.services.gemini_service import ChatMessage
 from app.api.dependencies import PineconeServiceDep, OpenAIServiceDep, DeepSeekServiceDep
 from app.lib.constants.model_config import SYSTEM_PROMPTS
-from app.models.context import Context, FileNode, InternalComponent
+from app.models.context import Context
+from app.models.component import FileNode, InternalComponent
 from app.services.database_service import DatabaseService
 import app.utils.llm_parser as Utils
-from app.models.builder_steps import ReactResponse
+from app.models.builder_steps import ReactResponse, get_dummy_response, FileStep
+
 
 router = APIRouter()
 
@@ -61,7 +63,9 @@ class GenerateComponentRequest(BaseModel):
     conversation: list[ChatMessage] = []
     codebase: list[FileNode] = []
     forcedComponents: list[str] = []
+    internalComponents: list[str] = []
     enableAISelection: bool = True
+    session_id: Optional[str] = ""
 
 class GenerateComponentResponse(BaseModel):
     status: str
@@ -76,19 +80,22 @@ class GenerateComponentResponse(BaseModel):
 async def generate_with_rag(
     request: GenerateComponentRequest,
     pinecone_service: PineconeServiceDep,
-    openai_service: DeepSeekServiceDep,
+    openai_service: OpenAIServiceDep,
     userId: str = Header(None),
     database_service: DatabaseService = Depends(DatabaseService)
 ):
-    """
-    Query similar components and use them as context to generate 
-    new components using the RAG approach.
-    """
     try:
+        if request.session_id:
+            session_id = request.session_id
+        else:   
+            session_id = await database_service.get_or_create_session(userId)
+        
+        # Filter out internal components from codebase
+        existing_internal_components, filtered_codebase, package_json_file = Utils.filter_internal_components(request.codebase)
+        
         # Get components from vector search
         query_results = {}
         if request.enableAISelection:
-
             query_results = pinecone_service.query(
                 query_text=request.query_text,
                 namespace=userId,
@@ -98,56 +105,65 @@ async def generate_with_rag(
         component_paths = [match['id'] for match in query_results.get('matches', [])]
         component_paths.extend(request.forcedComponents)
         
-        # Fetch component details from database
-        components = []
+        # Fetch component details and GitHub resources
+        internal_components: list[InternalComponent] = []
+
         if component_paths:
-            db_components = await database_service.find_many(
-                "components",
-                {
-                    "componentPath": {"$in": component_paths},
-                    "userId": userId
-                }
+            # Fetch components using the components function
+            internal_components: list[InternalComponent] = await database_service.fetch_components_by_paths(
+                component_paths=component_paths,
+                userId=userId
             )
-            
-            # Create internal components with full details
-            for component in db_components:
-                components.append(
-                    InternalComponent(
-                        path=component["componentPath"],
-                        name=component["componentName"],
-                        description=component.get("description", ""),
-                        useCase=component.get("useCase", ""),
-                        codeSamples=component.get("codeSamples", []),
-                        dependencies=component.get("dependencies", []),
-                        importPath=component.get("importPath", "")
-                    )
-                )
+
+        css_files = []
+        dependencies = {}  
+        css_files, dependencies = await database_service.get_github_resources(userId)
         
-        # Create context object
+        # Create context object with filtered codebase
         context = Context(
             user_query=request.query_text,
-            codebase=request.codebase, 
+            codebase=filtered_codebase, 
             system_prompt=SYSTEM_PROMPTS["react_generator"],
-            internal_components=components,
+            internal_components=internal_components,
             conversation=request.conversation,
-            additional_user_prompt=SYSTEM_PROMPTS["DESIGN"] if not request.conversation else None
+            additional_user_prompt=SYSTEM_PROMPTS["DESIGN"] if not request.conversation else None,
+            css_tokens={"files": css_files},
+            dependencies=dependencies
         )
         
         # Construct messages from context
         messages = context.construct_messages()
         
+        # react_response = get_dummy_response();
         response = openai_service.chat_completion(messages=messages)
-        
-        react_response = Utils.parse_llm_response_to_react_steps(response.get("text", "")) 
+        react_response = Utils.parse_llm_response_to_react_steps(response.get("text", ""))
+
+        # Process React steps for internal components
+        import_steps: list[FileStep] = await Utils.process_react_steps_for_internal_components(
+            react_response=react_response,
+            existing_internal_components=existing_internal_components,
+            package_json_file=package_json_file,
+            userId=userId
+        )
+        react_response.steps = react_response.steps + import_steps
 
         request.conversation.extend([ChatMessage(role="user",content=request.query_text)])
+        request.conversation.extend([ChatMessage(role="assistant",content=react_response)])
+
+        session_updates = {
+            "userId": userId,
+            "messages": [msg.model_dump() for msg in request.conversation],
+            "codebase": [file.model_dump() for file in request.codebase],
+        }
+        await database_service.update_session(session_id, session_updates)
 
         return {
             "status": "success",
+            "session_id": session_id,
             "generated_code": react_response,
             "conversation": request.conversation,
             "context": {
-                "components_used": len(components),
+                "components_used": len(internal_components),
                 "query": request.query_text
             }
         }

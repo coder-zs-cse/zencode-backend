@@ -1,7 +1,10 @@
 from httpx import AsyncClient
 from app.core.config import get_settings
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 from pydantic import BaseModel, Field
+from app.models.component import FileNode, InternalComponent
+import json 
+import requests
 
 settings = get_settings()
 
@@ -107,6 +110,29 @@ class Component(BaseModel):
         validate_assignment = True
         arbitrary_types_allowed = True
 
+class FileNode(BaseModel):
+    """Model representing a file in the codebase."""
+    fileName: str
+    filePath: str
+    fileContent: str
+
+class Message(BaseModel):
+    """Model representing a message in the session."""
+    role: str
+    content: Union[str, Dict[str, Any]]
+
+class Session(BaseModel):
+    """Model representing a chat session."""
+    userId: str
+    messages: List[Message] = Field(default_factory=list)
+    codebase: List[FileNode] = Field(default_factory=list)
+    internalComponents: List[str] = Field(default_factory=list)
+    npmPackages: List[str] = Field(default_factory=list)
+    
+    class Config:
+        validate_assignment = True
+        arbitrary_types_allowed = True
+
 class DatabaseService:
     def __init__(self):
         self.base_url = "http://localhost:4000/api"  # Update this with your Node.js backend URL
@@ -157,11 +183,14 @@ class DatabaseService:
     async def find_one(self, collection: str, query: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Find a single document in the specified collection."""
         try:
-            response = await self.client.get(
+            response = await self.client.post(
                 f"{self.base_url}/{collection}/findOne",
-                params={"query": query}
+                json={
+                    "query": query
+                }
             )
-            return response.json() if response.status_code == 200 else None
+            data = response.json() if response.status_code == 200 else None
+            return data
         except Exception as e:
             print(f"Error finding document in {collection}: {str(e)}")
             return None
@@ -169,9 +198,11 @@ class DatabaseService:
     async def find_many(self, collection: str, query: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Find multiple documents in the specified collection."""
         try:
-            response = await self.client.get(
+            response = await self.client.post(
                 f"{self.base_url}/{collection}/find",
-                params={"query": query}
+                json={
+                    "query": query
+                }
             )
             result = response.json()
             return result if response.status_code == 200 else []
@@ -230,6 +261,218 @@ class DatabaseService:
         except Exception as e:
             print(f"Error deleting document from {collection}: {str(e)}")
             return False
+
+    async def get_or_create_session(self, user_id: str) -> str:
+        """Get an existing session or create a new one for the user.
+        
+        Returns:
+            Tuple of (session_data, is_new_session)
+        """
+        try:
+            # Try to find existing session
+            # session = await self.find_one("sessions", {"userId": user_id})
+            # if session:
+            #     return session, False
+            
+            # # Create new session if none exists
+            new_session = Session(userId=user_id)
+            session_id = await self.insert_one("sessions", new_session.dict())
+            if not session_id:
+                raise Exception("Failed to create new session")
+            
+            return session_id
+            
+        except Exception as e:
+            print(f"Error in get_or_create_session: {str(e)}")
+            raise
+
+    async def update_session(self, session_id: str, updates: Dict[str, Any]) -> bool:
+        """Update a session with new data.
+        
+        Args:
+            session_id: The ID of the session to update
+            updates: The updates to apply to the session
+            
+        Returns:
+            bool indicating success
+        """
+        try:
+            success = await self.update_one(
+                "sessions",
+                {"_id": session_id},
+                {"$set": updates}
+            )
+            return success
+        except Exception as e:
+            print(f"Error updating session: {str(e)}")
+            return False
+
+    async def get_missing_internal_components(
+        self,
+        component_paths: List[str],
+        userId: str
+    ) -> List[FileNode]:
+        """
+        Fetch internal components by their paths and user ID
+        This is a pure database operation that takes a list of component paths and returns FileNodes
+        
+        Args:
+            component_paths: List of component paths to fetch
+            userId: The user ID that owns the components
+            
+        Returns:
+            List of FileNode objects with the component details
+        """
+        if not component_paths:
+            return []
+            
+        # Fetch components from database in a single call
+        db_components = await self.find_many(
+            "components",
+            {
+                "componentPath": {"$in": component_paths},
+                "userId": userId
+            }
+        )
+        
+        # Convert to FileNode objects
+        file_nodes = []
+        for component in db_components:
+            file_nodes.append(
+                FileNode(
+                    fileName=component["componentName"],
+                    filePath=component["componentPath"],
+                    fileContent=component.get("code", ""),
+                )
+            )
+            
+        return file_nodes
+
+    async def fetch_components_by_paths(
+        self, 
+        component_paths: List[str], 
+        userId: str
+    ) -> List[InternalComponent]:
+        """
+        Fetch multiple components by their paths and user ID
+        
+        Args:
+            component_paths: List of component paths to fetch
+            userId: The user ID that owns the components
+            
+        Returns:
+            List of InternalComponent objects with the component details
+        """
+        components = []
+        
+        if not component_paths:
+            return components
+            
+        # Fetch components from database
+        db_components = await self.find_many(
+            "components",
+            {
+                "componentPath": {"$in": component_paths},
+                "userId": userId
+            }
+        )
+        
+        # Create internal components with full details
+        for component in db_components:
+            components.append(
+                InternalComponent(
+                    path=component["componentPath"],
+                    name=component["componentName"],
+                    inputProps=component.get("inputProps", ""),
+                    useCase=component.get("useCase", ""),
+                )
+            )
+            
+        return components
+        
+    async def fetch_github_data(self, userId: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch GitHub repository data for a user
+        
+        Args:
+            userId: The user ID to fetch GitHub data for
+            
+        Returns:
+            Dictionary containing GitHub repository data or None if not found
+        """
+        # Fetch GitHub repo data
+        github_data = await self.find_one(
+            "github",
+            {
+                "userId": userId,
+                "githubUrl": {"$exists": True}
+            }
+        )
+        
+        return github_data
+
+    def parse_component_code_sync(self, code: str) -> Dict[str, Any]:
+        """Synchronous version of parse_component_code"""
+        
+        response = requests.post(
+            f"{self.base_url}/parse",
+            json={"code": code}
+        )
+        return response.json()
+    
+    async def parse_component_code(self, code: str) -> Dict[str, Any]:
+        """Parse component code to extract dependencies and other metadata"""
+        response = await self.client.post(
+                f"{self.base_url}/parse",
+                json={"code": code}
+            )
+        data = response.json()
+        return data
+    
+    async def get_github_resources(self, userId: str) -> tuple[List[str], Dict[str, List[str]]]:
+        """
+        Fetch GitHub resources (CSS files and dependencies) for a user
+        
+        Args:
+            database_service: Database service instance
+            userId: User ID to fetch resources for
+            
+        Returns:
+            Tuple containing:
+            - List of CSS files
+            - Dictionary of dependencies and devDependencies
+        """
+        # Initialize empty return values
+        css_files = []
+        dependencies = {
+            "dependencies": [],
+            "devDependencies": []
+        }
+        
+        # Fetch GitHub data
+        github_data = await database_service.fetch_github_data(userId)
+        
+        if github_data:
+            # Process CSS files
+            if github_data.get("cssFiles"):
+                try:
+                    css_files = json.loads(github_data["cssFiles"])
+                except json.JSONDecodeError:
+                    pass
+            
+            # Process package.json data
+            if github_data.get("packageJson"):
+                try:
+                    package_data = json.loads(github_data["packageJson"])
+                    if package_data:
+                        if "dependencies" in package_data:
+                            dependencies["dependencies"] = package_data["dependencies"].split(",")
+                        if "devDependencies" in package_data:
+                            dependencies["devDependencies"] = package_data["devDependencies"].split(",")
+                except json.JSONDecodeError:
+                    pass
+        
+        return css_files, dependencies
 
 # Create a singleton instance
 database_service = DatabaseService() 

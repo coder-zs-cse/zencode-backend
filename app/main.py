@@ -23,13 +23,14 @@ async def add_user_id_header(request: Request, call_next):
         return response
     return await call_next(request)
 
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=["http://localhost:3000"],  # only allow localhost:3000
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
-    expose_headers=["x-user-id"],  # Expose custom header
+    allow_methods=["*"],  # allow all HTTP methods (GET, POST, etc.)
+    allow_headers=["*"],  # allow all custom headers
+    expose_headers=["x-user-id"],  # expose custom header to frontend
 )
 
 app.include_router(routers.router, prefix='/api')

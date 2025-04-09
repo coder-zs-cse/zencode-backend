@@ -1,8 +1,11 @@
 import re
 import json
-from typing import TypeVar, Type, Optional
+import httpx
+from typing import TypeVar, Type, Optional, List, Dict, Any, Tuple
 from pydantic import BaseModel
 from app.models.builder_steps import ReactResponse, FileStep
+from app.models.component import FileNode
+from app.services.database_service import database_service
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -70,8 +73,8 @@ def parse_llm_response_to_model_list(text: str, model_class: Type[T], list_key: 
         items = json_data.get(list_key, [])
         # Parse each item into a model instance
         return [model_class(**item) for item in items]
-    except Exception:
-        return []
+    except Exception as e:
+        raise RuntimeError(f"Error during LLM parsing: {str(e)}")
 
 def parse_llm_response_to_react_steps(text: str) -> ReactResponse:
     """
@@ -102,4 +105,96 @@ def parse_llm_response_to_react_steps(text: str) -> ReactResponse:
         
     except Exception as e:
         print(f"Error parsing LLM response to ReactResponse: {str(e)}")
-        return ReactResponse(steps=[]) 
+        return ReactResponse(steps=[])
+
+def filter_internal_components(codebase: List[FileNode]) -> Tuple[List[str], List[FileNode], FileNode]:
+    """Filter out internal component paths from codebase"""
+    internal_components = []
+    package_json_file = None
+    for file in codebase:
+        if '/ui/internal/' in file.filePath:
+            internal_components.append(file.filePath)
+        if file.fileName == 'package.json':
+            package_json_file = file
+
+
+    filtered_codebase = [file for file in codebase if file.filePath not in internal_components]
+    return internal_components, filtered_codebase, package_json_file
+
+
+
+
+async def process_react_steps_for_internal_components(
+    react_response: ReactResponse,
+    existing_internal_components: List[str],
+    package_json_file: FileNode,
+    userId: str
+) -> list[FileStep]:
+    """
+    Process React steps to find and include missing internal components
+    
+    Args:
+        react_response: The ReactResponse object with steps
+        existing_internal_components: List of already existing internal component paths
+        userId: User ID for database queries
+        
+    Returns:
+        Updated ReactResponse with additional steps for internal components
+    """
+    import_steps: list[FileStep] = []
+    missing_component_paths = []
+    missing_dependencies = []
+
+    if react_response and react_response.steps:
+        for step in react_response.steps:
+            if step.path == package_json_file.filePath:
+                package_json_file.fileContent = step.content
+            if step.content:
+                # Parse component code to extract dependencies
+                parsed_data = await database_service.parse_component_code(step.content)
+                
+                if parsed_data and "dependencies" in parsed_data:
+                    # Find missing internal components
+                    for dep in parsed_data["dependencies"]:
+                        if '/ui/internal/' in dep and dep not in existing_internal_components:
+                            # Extract the component name after 'internal/' and construct the full path
+                            component_name = dep.split('/ui/internal/')[-1]
+                            full_path = f"src/components/ui/internal/{component_name}.tsx"
+                            missing_component_paths.append(full_path)
+                        # else:
+                        #     missing_dependencies.append(dep)
+    
+    # Only make a database call if there are missing components
+    if missing_component_paths:
+        # Fetch all missing components in a single database call
+        missing_components = await database_service.get_missing_internal_components(
+            missing_component_paths,
+            userId
+        )
+        
+        # Add import steps for missing components
+        for comp in missing_components:
+            # for dep in comp.dependencies:
+            #     if dep not in missing_dependencies:
+            #         missing_dependencies.append(dep)
+
+            import_step = FileStep(
+                id=len(react_response.steps) + len(import_steps) + 1,
+                title=f"Importing Internal Component {comp.fileName}",
+                type=0,
+                content=comp.fileContent,
+                path=comp.filePath
+            )
+            import_steps.append(import_step)
+    
+    # Add the import steps to the original steps
+    return import_steps 
+
+
+def transform_absolute_path(path: str) -> str:
+    """
+    Transform an absolute path to a relative path
+    """
+    if path.startswith('src/'):
+        path = path.replace('src/', '@/', 1)
+    return path
