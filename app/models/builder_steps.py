@@ -29,19 +29,45 @@ class ReactResponse(BaseModel):
 
 def get_dummy_response() -> ReactResponse:
     """Generate a dummy ReactResponse for testing purposes."""
-    dummy_component = '''import React from 'react';
+    dummy_component = '''
+    import React, { useState } from 'react';
+import { TodoItem } from './TodoItem';
+import { TodoList } from './TodoList';
+import { Button } from '../ui/internal/Button';
 
-const DummyComponent = () => {
-    return (
-        <div className="dummy-container">
-            <h1>Hello from Dummy Component</h1>
-            <p>This is a sample component for testing purposes.</p>
-            <button className="dummy-button">Click Me!</button>
-        </div>
-    );
-};
+export const TodoApp = () => {
+  const [items, setItems] = useState<{ id: number; text: string; completed: boolean; }[]>([]);
+  const [inputValue, setInputValue] = useState<string>('');
 
-export default DummyComponent;'''
+  const handleAddTodo = () => {
+    if (!inputValue.trim()) return;
+    const newTodo = { id: Date.now(), text: inputValue, completed: false };
+    setItems([...items, newTodo]);
+    setInputValue('');
+  };
+
+  const handleToggleTodo = (id: number) => {
+    setItems(items.map(item => item.id === id ? { ...item, completed: !item.completed } : item));
+  };
+
+  const handleDeleteTodo = (id: number) => {
+    setItems(items.filter(item => item.id !== id));
+  };
+
+  return (
+    <div className="p-4">
+      <input
+        type="text"
+        value={inputValue}
+        onChange={(e) => setInputValue(e.target.value)}
+        placeholder="Add a new task"
+        className="border rounded p-2 mr-2"
+      />
+      <Button onClick={handleAddTodo} label="Add Todo" />
+      <TodoList items={items} onToggle={handleToggleTodo} onDelete={handleDeleteTodo} />
+    </div>
+  );
+};'''
 
     dummy_step = FileStep(
         id=1,

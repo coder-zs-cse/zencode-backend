@@ -9,7 +9,7 @@ from app.services.openai_service import OpenAIService, ChatMessage
 from app.core.config import get_settings
 from app.lib.constants.model_config import SYSTEM_PROMPTS
 from app.utils.llm_parser import parse_llm_response_to_model_list
-
+from app.services.database_service import database_service
 
 class FetchedComponent(BaseModel):
     file: str
@@ -30,6 +30,7 @@ class Component(BaseModel):
     inputProps: List[Dict[str, Any]]
     useCases: List[str]
     codeExamples: List[str]
+    dependencies: List[str]
 
 class CSSClass(BaseModel):
     name: str
@@ -164,16 +165,26 @@ class FetchComponentsService:
 
             # Update components with original file information
             min_length = min(len(parsed_components), len(batch))
+            
+            dependency_list = {}
             for i in range(min_length):
+
+                parsed_data = database_service.parse_component_code_sync(batch[i].fileContent)
+                if parsed_data and "dependencies" in parsed_data:
+                    dependency_list[batch[i].path] = parsed_data["dependencies"]
+                else: 
+                    dependency_list[batch[i].path] = []
 
                 component_data = parsed_components[i].model_dump()
 
                 component_data["name"] = batch[i].file
                 component_data["path"] = batch[i].path  
                 component_data["code"] = batch[i].fileContent
-
+                component_data["dependencies"] = dependency_list[batch[i].path]
+                
                 result_components.append(Component(**component_data))
 
+            
             return result_components
             
         except Exception as e:
@@ -553,7 +564,10 @@ class FetchComponentsService:
             raise
 
     def _modify_path_with_internal(self, path: str) -> str:
-        """Add 'internal' directory after 'ui' in the path if 'ui' exists."""
+        """Add 'internal' directory after 'ui' in the path if 'ui' exists and replace 'src/' with '@/.'"""
+        # if path.startswith('src/'):
+        #     path = path.replace('src/', '@/', 1)
+        
         parts = path.split('/')
         for i, part in enumerate(parts):
             if part.lower() == 'ui':
@@ -561,4 +575,3 @@ class FetchComponentsService:
                 parts.insert(i + 1, 'internal')
                 break
         return '/'.join(parts)
-    

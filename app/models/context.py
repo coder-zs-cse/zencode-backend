@@ -2,20 +2,8 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from app.services.gemini_service import ChatMessage
 from app.lib.constants.model_config import SYSTEM_PROMPTS
-
-class FileNode(BaseModel):
-    fileName: str
-    filePath: str
-    fileContent: str
-
-class InternalComponent(BaseModel):
-    path: str
-    name: Optional[str] = None
-    description: Optional[str] = None
-    useCase: Optional[str] = None
-    codeSamples: List[str] = Field(default_factory=list)
-    dependencies: List[str] = Field(default_factory=list)
-    inputProps: str
+from app.models.component import FileNode, InternalComponent
+import app.utils.llm_parser as Utils
 
 class Context(BaseModel):
     """
@@ -99,8 +87,10 @@ class Context(BaseModel):
         if self.internal_components:
             components_context = "ENTERPRISE COMPONENTS - These are the approved internal components that MUST be reused. DO NOT create new components if similar functionality exists here. CRITICAL: You MUST use the exact import path provided for each component:\n\n"
             for component in self.internal_components:
+                absolute_path = Utils.transform_absolute_path(component.path)
+
                 components_context += f"COMPONENT: {component.name}\n"
-                components_context += f"IMPORT PATH (MUST use exactly as shown): {component.path}\n"
+                components_context += f"IMPORT PATH (MUST use exactly as shown): {absolute_path}\n"
                 if component.description:
                     components_context += f"DESCRIPTION: {component.description}\n"
                 if component.useCase:

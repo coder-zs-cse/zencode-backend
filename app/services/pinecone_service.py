@@ -233,6 +233,8 @@ class PineconeService:
             })
             
         # Collect package.json files data
+        total_dependencies = []
+        total_dev_dependencies = []
         for component in filtered_components.get('package_files', []):
             try:
                 # Parse package.json content
@@ -240,17 +242,20 @@ class PineconeService:
                 # Extract dependencies and devDependencies
                 dependencies = list(package_content.get('dependencies', {}).keys())
                 dev_dependencies = list(package_content.get('devDependencies', {}).keys())
+
+                total_dependencies.extend(dependencies)
+                total_dev_dependencies.extend(dev_dependencies)
                 
-                package_json_data.append({
-                    'path': component.path,
-                    'dependencies': ','.join(dependencies),
-                    'devDependencies': ','.join(dev_dependencies)
-                })
             except json.JSONDecodeError:
                 # Handle invalid JSON gracefully
                 print(f"Warning: Could not parse package.json at {component.path}")
                 continue
             
+        package_json_data = {
+            'dependencies': ','.join(total_dependencies),
+            'devDependencies': ','.join(total_dev_dependencies)
+        }
+
         # Collect design config files data
         for component in filtered_components.get('design_config_files', []):
             design_config_data.append({
