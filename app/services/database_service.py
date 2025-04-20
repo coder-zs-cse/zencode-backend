@@ -311,7 +311,7 @@ class DatabaseService:
         self,
         component_paths: List[str],
         userId: str
-    ) -> List[FileNode]:
+    ) -> List[InternalComponent]:
         """
         Fetch internal components by their paths and user ID
         This is a pure database operation that takes a list of component paths and returns FileNodes
@@ -339,10 +339,15 @@ class DatabaseService:
         file_nodes = []
         for component in db_components:
             file_nodes.append(
-                FileNode(
-                    fileName=component["componentName"],
-                    filePath=component["componentPath"],
-                    fileContent=component.get("code", ""),
+                InternalComponent(
+                    path=component["componentPath"],
+                    name=component["componentName"],
+                    inputProps=component.get("inputProps", ""),
+                    useCase=component.get("useCase", ""),
+                    code=component.get("code", ""),
+                    dependencies=component.get("dependencies", []),
+                    codeSamples=component.get("codeSamples", []),
+                    useCases=component.get("useCases", []),
                 )
             )
             
@@ -401,15 +406,16 @@ class DatabaseService:
             Dictionary containing GitHub repository data or None if not found
         """
         # Fetch GitHub repo data
-        github_data = await self.find_one(
+        response = await self.find_one(
             "github",
             {
                 "userId": userId,
                 "githubUrl": {"$exists": True}
             }
         )
-        
-        return github_data
+        if response.get("success") and response.get("data"):
+            return response["data"]
+        return None
 
     def parse_component_code_sync(self, code: str) -> Dict[str, Any]:
         """Synchronous version of parse_component_code"""
@@ -434,7 +440,6 @@ class DatabaseService:
         Fetch GitHub resources (CSS files and dependencies) for a user
         
         Args:
-            database_service: Database service instance
             userId: User ID to fetch resources for
             
         Returns:
@@ -450,7 +455,7 @@ class DatabaseService:
         }
         
         # Fetch GitHub data
-        github_data = await database_service.fetch_github_data(userId)
+        github_data = await self.fetch_github_data(userId)
         
         if github_data:
             # Process CSS files

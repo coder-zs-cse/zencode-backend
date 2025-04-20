@@ -143,12 +143,13 @@ async def generate_with_rag(
             react_response=react_response,
             existing_internal_components=existing_internal_components,
             package_json_file=package_json_file,
+            existing_deps=dependencies,
             userId=userId
         )
         react_response.steps = react_response.steps + import_steps
 
         request.conversation.extend([ChatMessage(role="user",content=request.query_text)])
-        request.conversation.extend([ChatMessage(role="assistant",content=react_response)])
+        # request.conversation.extend([ChatMessage(role="assistant",content=react_response)])
 
         session_updates = {
             "userId": userId,

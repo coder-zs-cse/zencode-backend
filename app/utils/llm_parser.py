@@ -128,6 +128,7 @@ async def process_react_steps_for_internal_components(
     react_response: ReactResponse,
     existing_internal_components: List[str],
     package_json_file: FileNode,
+    existing_deps: Dict[str, Any],
     userId: str
 ) -> list[FileStep]:
     """
@@ -136,6 +137,8 @@ async def process_react_steps_for_internal_components(
     Args:
         react_response: The ReactResponse object with steps
         existing_internal_components: List of already existing internal component paths
+        package_json_file: The package.json file node
+        existing_deps: Dictionary containing existing dependencies
         userId: User ID for database queries
         
     Returns:
@@ -144,6 +147,14 @@ async def process_react_steps_for_internal_components(
     import_steps: list[FileStep] = []
     missing_component_paths = []
     missing_dependencies = []
+
+    # Parse existing package dependencies
+    existing_package_deps = {}
+    if existing_deps.get("dependencies"):
+        for dep in existing_deps["dependencies"]:
+            if ":" in dep:
+                pkg, version = dep.split(":", 1)
+                existing_package_deps[pkg] = version
 
     if react_response and react_response.steps:
         for step in react_response.steps:
@@ -161,8 +172,6 @@ async def process_react_steps_for_internal_components(
                             component_name = dep.split('/ui/internal/')[-1]
                             full_path = f"src/components/ui/internal/{component_name}.tsx"
                             missing_component_paths.append(full_path)
-                        # else:
-                        #     missing_dependencies.append(dep)
     
     # Only make a database call if there are missing components
     if missing_component_paths:
@@ -172,23 +181,56 @@ async def process_react_steps_for_internal_components(
             userId
         )
         
-        # Add import steps for missing components
+        # Add import steps for missing components and collect their dependencies
         for comp in missing_components:
-            # for dep in comp.dependencies:
-            #     if dep not in missing_dependencies:
-            #         missing_dependencies.append(dep)
-
+            # Add the component import step
             import_step = FileStep(
                 id=len(react_response.steps) + len(import_steps) + 1,
-                title=f"Importing Internal Component {comp.fileName}",
+                title=f"Importing Internal Component {comp.path}",
                 type=0,
-                content=comp.fileContent,
-                path=comp.filePath
+                content=comp.code,
+                path=comp.path
             )
             import_steps.append(import_step)
+            
+            # Check component dependencies against existing package dependencies
+            if comp.dependencies:
+                for dep in comp.dependencies:
+                    if dep in existing_package_deps and dep not in missing_dependencies:
+                        missing_dependencies.append(dep)
     
-    # Add the import steps to the original steps
-    return import_steps 
+    # Handle package.json dependencies
+    if package_json_file.fileContent and missing_dependencies:
+        try:
+            package_data = json.loads(package_json_file.fileContent)
+            current_deps = package_data.get('dependencies', {})
+            
+            # Check for missing dependencies
+            new_deps = {}
+            for dep in missing_dependencies:
+                if dep not in current_deps:
+                    # Use version from existing dependencies
+                    version = existing_package_deps[dep]
+                    new_deps[dep] = version
+            
+            if new_deps:
+                # Update package.json with new dependencies
+                package_data['dependencies'].update(new_deps)
+                updated_package_json = json.dumps(package_data, indent=2)
+                
+                # Add FileStep to update package.json
+                package_update_step = FileStep(
+                    id=len(react_response.steps) + len(import_steps) + 1,
+                    title="Updating package.json with new dependencies",
+                    type=0,
+                    content=updated_package_json,
+                    path=package_json_file.filePath
+                )
+                import_steps.append(package_update_step)
+        except json.JSONDecodeError:
+            print("Error parsing package.json content")
+    
+    return import_steps
 
 
 def transform_absolute_path(path: str) -> str:

@@ -240,8 +240,8 @@ class PineconeService:
                 # Parse package.json content
                 package_content = json.loads(component.fileContent)
                 # Extract dependencies and devDependencies
-                dependencies = list(package_content.get('dependencies', {}).keys())
-                dev_dependencies = list(package_content.get('devDependencies', {}).keys())
+                dependencies = [f"{pkg}:{version}" for pkg, version in package_content.get('dependencies', {}).items()]
+                dev_dependencies = [f"{pkg}:{version}" for pkg, version in package_content.get('devDependencies', {}).items()]
 
                 total_dependencies.extend(dependencies)
                 total_dev_dependencies.extend(dev_dependencies)
